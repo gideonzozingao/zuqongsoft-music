@@ -9,9 +9,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import (QModelIndex, QProcess, QRect, QRectF, QSettings, QSize, QStandardPaths, Qt,
+from PySide6.QtCore import (QEvent, QModelIndex, QProcess, QRect, QRectF, QSettings, QSize, QStandardPaths, Qt,
                             QTimer, QUrl, Signal)
-from PySide6.QtGui import (QAction, QColor, QDesktopServices, QFont, QIcon, QKeySequence, QPainter,
+from PySide6.QtGui import (QAction, QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QKeySequence, QPainter,
                            QPainterPath, QPixmap, QShortcut)
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QFileDialog, QHBoxLayout,
                                QHeaderView, QInputDialog, QLabel, QLineEdit, QListView, QListWidget,
@@ -32,10 +32,13 @@ from .models import (COL_RATING, COL_TIME, AlbumDelegate, AlbumModel, CoverCache
                      TrackModel, fmt, fmt_long, sort_rows)
 from .panels import LyricsPanel, QueuePanel, StarBar
 from .play_tracker import PlayTracker
+from .responsive import PaneAnimator
 from .stats_page import StatsPage
 from .theme import C, icon
 
 COVER = 252
+DRAWER_W, NP_W = 264, 300
+WIDE_MIN, MEDIUM_MIN = 1180, 860      # window widths: wide >= 1180 > medium >= 860 > compact
 SONGS = {"kind": "songs"}
 STATS = {"kind": "stats", "name": "Your year in music"}
 SMART_ICONS = {"most_played": "insights", "recently_added": "add", "recently_played": "repeat",
@@ -140,7 +143,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Music")
         self.resize(1280, 800)
-        self.setMinimumSize(980, 600)
+        self.setMinimumSize(560, 560)
         self.setAcceptDrops(True)
 
         self.settings = QSettings()
@@ -164,6 +167,10 @@ class MainWindow(QMainWindow):
         self._eq_device: str | None = None
         self._eq_dialog: EqualizerDialog | None = None
         self._cover_src: QPixmap | None = None
+        self._cover_side = COVER
+        self._mode: str | None = None          # "wide" | "medium" | "compact"
+        self._drawer_open = False              # sidebar, when it isn't always shown
+        self._screen = "player"                # compact: "player" or "library"
         self._theme_dialog: ThemeDialog | None = None
         self._theming = False
         s = self.settings
@@ -195,19 +202,27 @@ class MainWindow(QMainWindow):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        body = QHBoxLayout()
+        body = self.body = QHBoxLayout()
         body.setContentsMargins(0, 4, 16, 0)
         body.setSpacing(12)
-        body.addWidget(self._build_drawer())
-        body.addWidget(self._build_content(), 1)
-        body.addWidget(self._build_now_playing())
+        self.drawer_w = self._build_drawer()
+        self.content_w = self._build_content()
+        self.np_w = self._build_now_playing()
+        body.addWidget(self.drawer_w)
+        body.addWidget(self.content_w, 1)
+        body.addWidget(self.np_w)
         outer.addLayout(body, 1)
         outer.addWidget(self._build_bar())
+        self.panes = PaneAnimator(body, [self.drawer_w, self.content_w, self.np_w], self)
+        self.panes.finished.connect(self._after_layout)
+        self._cover_timer = QTimer(self, singleShot=True, interval=40)
+        self._cover_timer.timeout.connect(self._fit_cover)
+        for w in (self.np_w, self.table, self.btn_vol):
+            w.installEventFilter(self)
 
     def _build_drawer(self) -> QWidget:
         drawer = QWidget(objectName="drawer")
         drawer.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        drawer.setFixedWidth(264)
         lay = QVBoxLayout(drawer)
         lay.setContentsMargins(0, 8, 0, 12)
         lay.setSpacing(4)
@@ -255,11 +270,14 @@ class MainWindow(QMainWindow):
         self.search.setClearButtonEnabled(True)
         theme.bind(self.search.addAction(icon("search"), QLineEdit.ActionPosition.LeadingPosition), "search")
         self.search.setFixedHeight(48)
-        self.search.setMinimumWidth(180)
+        self.search.setMinimumWidth(110)
         self.search.setMaximumWidth(340)
 
         head = QHBoxLayout()
         head.setSpacing(8)
+        self.btn_menu = icon_button("menu", "Show sidebar (Ctrl+B)", role="on_surface")
+        self.btn_menu.hide()
+        head.addWidget(self.btn_menu, 0, Qt.AlignmentFlag.AlignTop)
         head.addWidget(self.btn_back, 0, Qt.AlignmentFlag.AlignTop)
         head.addLayout(titles, 1)
         head.addWidget(self.search, 0, Qt.AlignmentFlag.AlignTop)
@@ -337,7 +355,6 @@ class MainWindow(QMainWindow):
     def _build_now_playing(self) -> QWidget:
         pane = QWidget(objectName="pane")
         pane.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        pane.setFixedWidth(COVER + 48)
         lay = QVBoxLayout(pane)
         lay.setContentsMargins(16, 16, 16, 16)
         lay.setSpacing(12)
@@ -411,6 +428,8 @@ class MainWindow(QMainWindow):
         return pane
 
     def _set_np_tab(self, k: int) -> None:
+        if self._mode == "compact" and self._screen != "player":
+            self.show_screen("player")
         self.np_stack.setCurrentIndex(k)
         for i, b in enumerate(self.np_tabs):
             b.setChecked(i == k)
@@ -459,13 +478,17 @@ class MainWindow(QMainWindow):
         self.output_menu.aboutToShow.connect(lambda: self._fill_output_menu(self.output_menu))
         self.btn_output.setMenu(self.output_menu)
 
-        left = QWidget()
+        self.btn_screen = icon_button("library_music", "Show your library")
+        self.btn_screen.hide()
+        left = self.bar_left = QWidget()
         left.setFixedWidth(230)
         ll = QHBoxLayout(left)
         ll.setContentsMargins(0, 0, 0, 0)
+        ll.setSpacing(4)
+        ll.addWidget(self.btn_screen)
         ll.addWidget(self.btn_output)
         ll.addStretch(1)
-        right = QWidget()
+        right = self.bar_right = QWidget()
         right.setFixedWidth(230)
         rl = QHBoxLayout(right)
         rl.setContentsMargins(0, 0, 0, 0)
@@ -516,6 +539,7 @@ class MainWindow(QMainWindow):
         menu_action(m, "&Albums", lambda: self._navigate(ALBUMS), "Ctrl+2")
         menu_action(m, "&Find", lambda: (self.search.setFocus(), self.search.selectAll()), "Ctrl+F")
         m.addSeparator()
+        menu_action(m, "Show &Sidebar", self.toggle_drawer, "Ctrl+B")
         menu_action(m, "Now &Playing", lambda: self._set_np_tab(0), "Ctrl+P")
         menu_action(m, "&Lyrics", lambda: self._set_np_tab(1), "Ctrl+L")
         menu_action(m, "&Up Next", lambda: self._set_np_tab(2), "Ctrl+U")
@@ -602,6 +626,8 @@ class MainWindow(QMainWindow):
         self.btn_add_folder.clicked.connect(self._pick_folder)
         self.btn_theme.clicked.connect(self.show_theme_dialog)
         self.btn_eq.clicked.connect(self.show_equalizer)
+        self.btn_menu.clicked.connect(self.toggle_drawer)
+        self.btn_screen.clicked.connect(lambda: self.show_screen("library" if self._screen == "player" else "player"))
         QApplication.styleHints().colorSchemeChanged.connect(self._on_system_scheme)
         self.btn_back.clicked.connect(lambda: self._navigate(ALBUMS))
         self.btn_play_all.clicked.connect(lambda: self._play_all(shuffle=False))
@@ -780,6 +806,7 @@ class MainWindow(QMainWindow):
         if view:
             self.view = dict(view)
             self._reload()
+            self._after_navigation()
 
     def _on_nav_clicked(self, item: QListWidgetItem) -> None:
         # Clicking "Albums" while inside an album goes back to the grid.
@@ -791,6 +818,7 @@ class MainWindow(QMainWindow):
         self.view = dict(view)
         self._refresh_nav()
         self._reload()
+        self._after_navigation()
 
     def _open_album(self, album: str, artist: str) -> None:
         self._navigate({"kind": "album", "album": album, "artist": artist})
@@ -1248,7 +1276,7 @@ class MainWindow(QMainWindow):
     def _set_cover(self, pm: QPixmap | None) -> None:
         self._cover_src = pm
         dpr = self.screen().devicePixelRatio() if self.screen() else 1.0
-        self.cover.setPixmap(rounded_cover(pm, COVER, 28, dpr))
+        self.cover.setPixmap(rounded_cover(pm, self._cover_side, 28, dpr))
         self.mini_cover.setPixmap(rounded_cover(pm, 48, 10, dpr))
 
     def _theme_from_art(self, pm: QPixmap | None, apply: bool = True) -> None:
@@ -1293,7 +1321,7 @@ class MainWindow(QMainWindow):
         self.engine.set_volume(v)
         name = "volume_off" if v == 0 else ("volume_down" if v < 50 else "volume_up")
         self.btn_vol.setIcon(icon(name))
-        self.btn_vol.setToolTip("Unmute" if v == 0 else "Mute")
+        self.btn_vol.setToolTip(("Unmute" if v == 0 else "Mute") + f" (volume {v}%, scroll to change)")
 
     def _toggle_mute(self) -> None:
         if self.vol.value() > 0:
@@ -1318,6 +1346,127 @@ class MainWindow(QMainWindow):
         fn = actions.get(cmd)
         if fn:
             fn()
+
+    # ---- responsive layout -------------------------------------------------
+    def _mode_for(self, width: int) -> str:
+        return "wide" if width >= WIDE_MIN else "medium" if width >= MEDIUM_MIN else "compact"
+
+    def resizeEvent(self, e) -> None:
+        super().resizeEvent(e)
+        self._check_mode()
+
+    def showEvent(self, e) -> None:
+        super().showEvent(e)
+        self._check_mode()
+
+    def _check_mode(self) -> None:
+        mode = self._mode_for(self.width())
+        if mode == self._mode:
+            return
+        first = self._mode is None
+        self._mode = mode
+        self._drawer_open = False              # the sidebar always starts folded away when space shrinks
+        self._apply_layout(animate=not first and self.isVisible())
+
+    def _plan(self) -> dict:
+        d, c, n = self.drawer_w, self.content_w, self.np_w
+        hidden, stretch = ("hidden",), ("stretch",)
+        if self._mode == "wide":
+            return {d: ("fixed", DRAWER_W), c: stretch, n: ("fixed", NP_W)}
+        drawer = ("fixed", DRAWER_W) if self._drawer_open else hidden
+        if self._mode == "medium":
+            return {d: drawer, c: stretch, n: ("fixed", NP_W)}
+        if self._screen == "library":
+            return {d: drawer, c: stretch, n: hidden}
+        return {d: hidden, c: hidden, n: stretch}
+
+    def _apply_layout(self, animate: bool = True) -> None:
+        plan = self._plan()
+        left = 0 if plan[self.drawer_w][0] != "hidden" else 16
+        self._update_chrome()
+        self.panes.apply(plan, self.centralWidget().width(), left, animate)
+
+    def _update_chrome(self) -> None:
+        """Buttons and bar contents that depend on the layout mode."""
+        compact = self._mode == "compact"
+        self.btn_menu.setVisible(self._mode != "wide")
+        self.btn_menu.setToolTip(("Hide" if self._drawer_open else "Show") + " sidebar (Ctrl+B)")
+        self.btn_screen.setVisible(compact)
+        on_player = self._screen == "player"
+        theme.bind(self.btn_screen, "library_music" if on_player else "music_note")
+        self.btn_screen.setToolTip("Show your library" if on_player else "Show what's playing")
+        self.bar_left.setFixedWidth(96 if compact else 230)
+        self.bar_right.setFixedWidth(96 if compact else 230)
+        self.vol.setVisible(not compact)
+        self.btn_output.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly if compact
+                                           else Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        centre = compact and on_player
+        align = Qt.AlignmentFlag.AlignHCenter if centre else Qt.AlignmentFlag.AlignLeft
+        for lbl in (self.title_lbl, self.artist_lbl, self.album_lbl, self.plays_lbl):
+            lbl.setAlignment(align)
+        lay = self.cover.parentWidget().layout()
+        for w in (self.cover, self.stars):
+            lay.setAlignment(w, Qt.AlignmentFlag.AlignHCenter if centre else Qt.AlignmentFlag.AlignLeft)
+
+    def _after_layout(self) -> None:
+        self._fit_cover()
+        self._fit_columns()
+
+    def toggle_drawer(self) -> None:
+        if self._mode == "wide":
+            return
+        self._drawer_open = not self._drawer_open
+        if self._drawer_open and self._mode == "compact":
+            self._screen = "library"
+        self._apply_layout()
+
+    def show_screen(self, screen: str) -> None:
+        """Compact layout: switch between the player and the library."""
+        if self._mode != "compact" or screen == self._screen:
+            return
+        self._screen = screen
+        if screen == "player":
+            self._drawer_open = False
+        self._apply_layout()
+
+    def _after_navigation(self) -> None:
+        changed = False
+        if self._mode in ("medium", "compact") and self._drawer_open:
+            self._drawer_open = False
+            changed = True
+        if self._mode == "compact" and self._screen != "library":
+            self._screen = "library"
+            changed = True
+        if changed and self._mode is not None:
+            self._apply_layout()
+
+    def _fit_cover(self) -> None:
+        """The big cover grows with the player pane (it fills the window in compact mode)."""
+        page = self.cover.parentWidget()
+        free_h = page.height() - 190          # room left for title, artist, stars below
+        side = int(max(160, min(self.np_w.width() - 48, free_h, 520)))
+        if side != self._cover_side:
+            self._cover_side = side
+            self.cover.setFixedSize(side, side)
+            self._set_cover(self._cover_src)
+
+    def _fit_columns(self) -> None:
+        w = self.table.viewport().width()
+        self.table.setColumnHidden(3, w < 620)            # Album
+        self.table.setColumnHidden(COL_RATING, w < 480)
+        self.table.setColumnHidden(2, w < 340)            # Artist
+
+    def eventFilter(self, obj, ev) -> bool:
+        if ev.type() == QEvent.Type.Resize:
+            if obj is self.np_w and not self.panes.running:
+                self._cover_timer.start()
+            elif obj is self.table:
+                self._fit_columns()
+        elif ev.type() == QEvent.Type.Wheel and obj is self.btn_vol:
+            step = 5 if ev.angleDelta().y() > 0 else -5     # scroll on the speaker icon = volume
+            self.vol.setValue(max(0, min(100, self.vol.value() + step)))
+            return True
+        return super().eventFilter(obj, ev)
 
     # ---- themes ------------------------------------------------------------
     def theme_state(self) -> tuple[str, str, str | None]:
@@ -1459,8 +1608,10 @@ class MainWindow(QMainWindow):
         bt = bool(d and d.kind == "bluetooth")
         self.btn_output.setIcon(icon(KIND_ICONS[d.kind] if d else "volume_off",
                                      C["primary"] if bt else C["on_surface_variant"]))
-        self.btn_output.setText(self.btn_output.fontMetrics().elidedText(
-            name, Qt.TextElideMode.ElideRight, 180))
+        chip_font = QFont(self.btn_output.font())          # the chip's style sheet font: 13 px, semibold
+        chip_font.setPixelSize(13)
+        chip_font.setWeight(QFont.Weight.DemiBold)
+        self.btn_output.setText(QFontMetrics(chip_font).elidedText(name, Qt.TextElideMode.ElideRight, 170))
         self.btn_output.setProperty("bt", bt)
         self.btn_output.style().unpolish(self.btn_output)
         self.btn_output.style().polish(self.btn_output)
