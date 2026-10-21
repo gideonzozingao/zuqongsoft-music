@@ -296,6 +296,3 @@ Several of these are GPL-licensed, which affects how you may distribute the app.
 ---
 
 ## Licence
-
-© Zuqongtech. Add your licence here.
-# zuqongsoft-music
