@@ -1,0 +1,15 @@
+PySide6-Essentials>=6.8
+PySide6-Addons>=6.8
+mutagen>=1.47
+# mpv audio engine (gapless, equalizer). Needs libmpv-2.dll in ./lib on Windows:
+# build.bat fetches it (tools/get_libmpv.py). Linux: apt install libmpv2. macOS: brew install mpv.
+python-mpv>=1.0
+
+# Windows system media overlay (SMTC). Optional: without these the app falls back
+# to grabbing the media keys directly.
+winrt-runtime>=2.0; sys_platform == "win32"
+winrt-Windows.Foundation>=2.0; sys_platform == "win32"
+winrt-Windows.Foundation.Collections>=2.0; sys_platform == "win32"
+winrt-Windows.Media>=2.0; sys_platform == "win32"
+winrt-Windows.Media.Playback>=2.0; sys_platform == "win32"
+winrt-Windows.Storage.Streams>=2.0; sys_platform == "win32"

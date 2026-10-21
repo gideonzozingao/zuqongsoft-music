@@ -1,0 +1,48 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# --- PyInstaller ---
+build/
+dist/
+# MusicPlayer.spec is hand-written, so it is NOT ignored (no *.spec rule here)
+
+# --- libmpv (downloaded by build.bat / tools/get_libmpv.py, ~120 MB) ---
+lib/
+
+# --- Build and release output ---
+build.log
+*.zip
+*.7z
+Output/
+
+# --- Tool caches ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Editors / IDEs ---
+.vscode/
+.idea/
+*.swp
+*~
+
+# --- OS files ---
+Thumbs.db
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# --- Local secrets / config ---
+.env
