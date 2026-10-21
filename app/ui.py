@@ -34,6 +34,7 @@ from .panels import LyricsPanel, QueuePanel, StarBar
 from .play_tracker import PlayTracker
 from .responsive import PaneAnimator
 from .stats_page import StatsPage
+from .sound_ui import sound_settings
 from .theme import C, icon
 
 COVER = 252
@@ -83,6 +84,21 @@ class JumpSlider(QSlider):
             e.accept()
         else:
             super().mouseReleaseEvent(e)
+
+
+class VolumeSlider(JumpSlider):
+    """Volume slider that can run past 100%: a tick marks 100% and the boost zone turns a warning colour."""
+
+    def paintEvent(self, e) -> None:
+        super().paintEvent(e)
+        if self.maximum() <= 100:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        x = QStyle.sliderPositionFromValue(self.minimum(), self.maximum(), 100, self.width() - 16) + 8
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(C["on_surface_variant"]))
+        p.drawRoundedRect(QRectF(x - 1, self.height() / 2 - 7, 2, 14), 1, 1)
 
 
 def icon_button(name: str, tip: str, size: int = 40, icon_size: int = 24,
@@ -465,7 +481,7 @@ class MainWindow(QMainWindow):
         self.btn_repeat = icon_button("repeat", "Repeat: off (Ctrl+R)")
         self.btn_eq = icon_button("equalizer", "Equalizer (Ctrl+E)")
         self.btn_vol = icon_button("volume_up", "Mute")
-        self.vol = JumpSlider(Qt.Orientation.Horizontal)
+        self.vol = VolumeSlider(Qt.Orientation.Horizontal)
         self.vol.setRange(0, 100)
         self.vol.setFixedWidth(120)
 
@@ -559,6 +575,7 @@ class MainWindow(QMainWindow):
         menu_action(m, "Cycle &Repeat", self._cycle_repeat, "Ctrl+R")
         m.addSeparator()
         menu_action(m, "&Equalizer…", self.show_equalizer, "Ctrl+E")
+        menu_action(m, "&Sound Settings…", lambda: self.show_equalizer(page=1), "Ctrl+Shift+E")
         m.addSeparator()
         self.act_hotkeys = menu_action(m, "&Global Hotkeys", self._set_hotkeys, checkable=True)
         m.addSeparator()
@@ -660,7 +677,7 @@ class MainWindow(QMainWindow):
         geo = self.settings.value("geometry")
         if geo:
             self.restoreGeometry(geo)
-        self.vol.setValue(int(self.settings.value("volume", 70)))
+        self.vol.setValue(min(100, int(self.settings.value("volume", 70))))   # never start boosted
         self._on_volume(self.vol.value())
         self.engine.set_shuffle(self.settings.value("shuffle", False, type=bool))
         self.engine.set_repeat(RepeatMode(int(self.settings.value("repeat", 0))))
@@ -681,6 +698,7 @@ class MainWindow(QMainWindow):
         self._set_np_tab(int(self.settings.value("ui/np_tab", 0) or 0) % 3)
         self._apply_output()
         self.engine.set_normalize(self.eq_store.normalize)
+        self.apply_sound_settings()
         self._load_eq_for_device(force=True)
         if self.engine.fallback_reason:
             self.statusBar().showMessage("Basic audio engine in use, so the equalizer is off. "
@@ -744,7 +762,7 @@ class MainWindow(QMainWindow):
         self.engine.shutdown()
         s = self.settings
         s.setValue("geometry", self.saveGeometry())
-        s.setValue("volume", self.vol.value())
+        s.setValue("volume", min(100, self.vol.value()))
         s.setValue("shuffle", self.engine.shuffle)
         s.setValue("repeat", self.engine.repeat.value)
         s.setValue("hotkeys", self.act_hotkeys.isChecked())
@@ -1317,7 +1335,56 @@ class MainWindow(QMainWindow):
         btn.style().unpolish(btn)
         btn.style().polish(btn)
 
+    def apply_sound_settings(self) -> None:
+        """Push the Sound page settings to the engine and the volume slider."""
+        s = sound_settings(self.settings)
+        top = self.engine.max_volume if s["boost"] else 100
+        if self.vol.value() > top:
+            self.vol.setValue(top)
+        self.vol.setMaximum(top)
+        self.vol.update()
+        self.engine.set_loudness(s["loudness"])
+        self.engine.set_sound_options(s["exclusive"], s["hq_resample"], s["channels"])
+
+    def _boost_allowed_now(self, v: int) -> bool:
+        """One-time hearing warning the first time you go past 100% on headphones or Bluetooth."""
+        out = self._current_out
+        if v <= 100 or not (out and out.personal) or self.settings.value("sound/boost_warned", False, type=bool):
+            return True
+        self.vol.dragging = False
+        self.vol.blockSignals(True)
+        self.vol.setValue(100)
+        self.vol.blockSignals(False)
+        self.engine.set_volume(100)
+        if not getattr(self, "_asking_boost", False):
+            self._asking_boost = True
+            QTimer.singleShot(0, lambda: self._ask_boost(v))
+        return False
+
+    def _ask_boost(self, v: int) -> None:
+        answer = QMessageBox.warning(
+            self, "Volume above 100%",
+            f"You're listening on {self._current_out.name if self._current_out else 'headphones'}.\n\n"
+            "Going above 100% can be very loud on headphones, and listening at high volume for long "
+            "periods can permanently damage your hearing.\n\nGo above 100% anyway?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel)
+        self._asking_boost = False
+        if answer == QMessageBox.StandardButton.Yes:
+            self.settings.setValue("sound/boost_warned", True)
+            self.vol.setValue(v)
+
     def _on_volume(self, v: int) -> None:
+        if not self._boost_allowed_now(v):
+            return
+        boosted = v > 100
+        if self.vol.property("boost") != boosted:
+            self.vol.setProperty("boost", boosted)
+            self.vol.style().unpolish(self.vol)
+            self.vol.style().polish(self.vol)
+        if boosted and self.vol.isVisible():
+            from PySide6.QtWidgets import QToolTip
+            QToolTip.showText(self.vol.mapToGlobal(self.vol.rect().topRight()), f"{v}% (boost)", self.vol)
         self.engine.set_volume(v)
         name = "volume_off" if v == 0 else ("volume_down" if v < 50 else "volume_up")
         self.btn_vol.setIcon(icon(name))
@@ -1340,7 +1407,7 @@ class MainWindow(QMainWindow):
         actions = {
             "play": e.play, "pause": e.pause, "toggle": e.toggle, "stop": e.pause,
             "next": e.next, "previous": e.previous,
-            "vol_up": lambda: self.vol.setValue(min(100, self.vol.value() + 5)),
+            "vol_up": lambda: self.vol.setValue(min(self.vol.maximum(), self.vol.value() + 5)),
             "vol_down": lambda: self.vol.setValue(max(0, self.vol.value() - 5)),
         }
         fn = actions.get(cmd)
@@ -1464,7 +1531,7 @@ class MainWindow(QMainWindow):
                 self._fit_columns()
         elif ev.type() == QEvent.Type.Wheel and obj is self.btn_vol:
             step = 5 if ev.angleDelta().y() > 0 else -5     # scroll on the speaker icon = volume
-            self.vol.setValue(max(0, min(100, self.vol.value() + step)))
+            self.vol.setValue(max(0, min(self.vol.maximum(), self.vol.value() + step)))
             return True
         return super().eventFilter(obj, ev)
 
@@ -1576,10 +1643,11 @@ class MainWindow(QMainWindow):
             QProcess.startDetached(sys.executable, args)
             QApplication.quit()
 
-    def show_equalizer(self) -> None:
+    def show_equalizer(self, page: int = 0) -> None:
         if self._eq_dialog is None:
             self._eq_dialog = EqualizerDialog(self)
         self._eq_dialog.sync()
+        self._eq_dialog.show_page(page)
         self._eq_dialog.show()
         self._eq_dialog.raise_()
         self._eq_dialog.activateWindow()

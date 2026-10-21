@@ -309,6 +309,9 @@ QSlider::groove:horizontal { height: 4px; background: $secondary_container; bord
 QSlider::sub-page:horizontal { background: $primary; border-radius: 2px; }
 QSlider::add-page:horizontal { background: $secondary_container; border-radius: 2px; }
 QSlider::handle:horizontal { width: 16px; height: 16px; margin: -6px 0; border-radius: 8px; background: $primary; }
+QSlider[boost="true"]::sub-page:horizontal { background: $error; }
+QSlider[boost="true"]::handle:horizontal { background: $error; }
+QLabel#audioInfo { font-size: 13px; line-height: 150%; }
 QSlider::handle:horizontal:hover { background: $primary_hi; }
 
 QSlider::groove:vertical { width: 4px; background: $secondary_container; border-radius: 2px; }

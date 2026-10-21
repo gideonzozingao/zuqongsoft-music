@@ -57,14 +57,31 @@ class EqState:
                    [clamp(g, GAIN_RANGE) for g in gains], str(d.get("preset", CUSTOM)))
 
 
-def af_chain(state: EqState) -> str:
-    if not state.enabled:
-        return ""
-    parts = [f"@eqpre:lavfi=[volume=volume={state.preamp:.1f}dB]"]
-    parts += [f"@eq{i}:lavfi=[equalizer=f={f}:t=o:w=1:g={g:.1f}]"
-              for i, (f, g) in enumerate(zip(BANDS, state.gains))]
-    parts.append("@eqlim:lavfi=[alimiter=limit=0.97:level=0]")
+# "Make quiet songs louder": short window so it reacts within a second and adds no start delay.
+LOUDNESS_FILTER = "dynaudnorm=f=150:g=7:p=0.9:m=8"
+LIMITER = "@eqlim:lavfi=[alimiter=limit=0.97:level=0]"
+
+
+def build_chain(state: EqState, boost_db: float = 0.0, loudness: bool = False) -> str:
+    """Filter chain: loudness levelling -> EQ (pre-amp + bands) -> volume boost -> limiter.
+    The boost is a filter (not mpv's volume, which is applied after all filters) so the
+    limiter can catch the peaks it creates: louder without clipping."""
+    parts = []
+    if loudness:
+        parts.append(f"@loud:lavfi=[{LOUDNESS_FILTER}]")
+    if state.enabled:
+        parts.append(f"@eqpre:lavfi=[volume=volume={state.preamp:.1f}dB]")
+        parts += [f"@eq{i}:lavfi=[equalizer=f={f}:t=o:w=1:g={g:.1f}]"
+                  for i, (f, g) in enumerate(zip(BANDS, state.gains))]
+    if boost_db > 0:
+        parts.append(f"@boost:lavfi=[volume=volume={boost_db:.2f}dB]")
+    if parts:
+        parts.append(LIMITER)
     return ",".join(parts)
+
+
+def af_chain(state: EqState) -> str:
+    return build_chain(state)
 
 
 def band_command(index: int, gain: float) -> tuple:

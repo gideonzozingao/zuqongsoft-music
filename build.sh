@@ -20,7 +20,7 @@ echo "Project folder: $ROOT"
 missing=()
 for f in main.py requirements.txt app/ui.py app/engine.py app/libmpv.py app/equalizer.py \
          app/equalizer_ui.py app/audio_devices.py app/theme_picker.py app/lyrics.py app/lyrics_editor.py app/panels.py \
-         app/stats_page.py app/play_tracker.py app/responsive.py assets/icon.ico assets/icon.png; do
+         app/stats_page.py app/play_tracker.py app/responsive.py app/sound_ui.py assets/icon.ico assets/icon.png; do
     [ -f "$f" ] || missing+=("$f")
 done
 if [ ${#missing[@]} -gt 0 ]; then

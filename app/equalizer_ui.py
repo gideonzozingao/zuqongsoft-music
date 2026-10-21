@@ -6,7 +6,8 @@ import sys
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import (QAbstractButton, QComboBox, QDialog, QDialogButtonBox, QFrame,
+from PySide6.QtWidgets import (QAbstractButton, QComboBox, QDialog, QDialogButtonBox, QFrame, QScrollArea,
+                               QStackedWidget,
                                QHBoxLayout, QInputDialog, QLabel, QMessageBox, QPushButton,
                                QSlider, QVBoxLayout, QWidget)
 
@@ -162,12 +163,32 @@ class EqualizerDialog(QDialog):
     def __init__(self, window) -> None:
         super().__init__(window)
         self.win = window
-        self.setWindowTitle("Equalizer")
+        self.setWindowTitle("Equalizer & Sound")
         self._save_timer = QTimer(self, singleShot=True, interval=400)
         self._save_timer.timeout.connect(lambda: self.win.save_eq())
 
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(24, 24, 24, 16)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(24, 20, 24, 16)
+        outer.setSpacing(14)
+        tabs = QHBoxLayout()
+        tabs.setSpacing(0)
+        self.page_tabs = []
+        for k, label in enumerate(("Equalizer", "Sound")):
+            b = QPushButton(label, objectName="segment")
+            b.setCheckable(True)
+            b.setProperty("seg", "first" if k == 0 else "last")
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.clicked.connect(lambda _c=False, k=k: self.show_page(k))
+            self.page_tabs.append(b)
+            tabs.addWidget(b)
+        tabs.addStretch(1)
+        outer.addLayout(tabs)
+        self.pages = QStackedWidget()
+        outer.addWidget(self.pages, 1)
+        eq_page = QWidget()
+        self.pages.addWidget(eq_page)
+        lay = QVBoxLayout(eq_page)
+        lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(14)
 
         head = QHBoxLayout()
@@ -252,7 +273,15 @@ class EqualizerDialog(QDialog):
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.close)
-        lay.addWidget(buttons)
+        from .sound_ui import SoundPage
+        self.sound = SoundPage(self.win, Switch)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(self.sound)
+        self.pages.addWidget(scroll)
+        outer.addWidget(buttons)
+        self.show_page(0)
 
         self.btn_fetch.clicked.connect(self._fetch_engine)
         self.btn_restart.clicked.connect(self.win.restart_app)
@@ -273,7 +302,14 @@ class EqualizerDialog(QDialog):
     def state(self) -> EqState:
         return self.win.eq
 
+    def show_page(self, k: int) -> None:
+        self.pages.setCurrentIndex(k)
+        for i, b in enumerate(self.page_tabs):
+            b.setChecked(i == k)
+
     def sync(self) -> None:
+        if hasattr(self, "sound"):
+            self.sound.sync()
         st, store = self.state, self.win.eq_store
         supported = self.win.engine.supports_eq
         for w, v in ((self.enable, st.enabled), (self.per_device, store.per_device),

@@ -8,6 +8,7 @@ create_engine() picks the best one. The UI only uses the public methods/signals.
 from __future__ import annotations
 
 import locale
+import math
 import os
 import random
 import sys
@@ -17,7 +18,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Signal
 from PySide6.QtMultimedia import QAudioDevice, QAudioOutput, QMediaPlayer
 
-from .equalizer import EqState, band_command, af_chain
+from .equalizer import EqState, band_command, build_chain
 
 
 class RepeatMode(Enum):
@@ -38,6 +39,7 @@ class BaseEngine(QObject):
     PREV_RESTART_MS = 3000          # "previous" restarts the track after this
     name = "base"
     supports_eq = False
+    max_volume = 100              # mpv: 200 (boost); Qt Multimedia: 100
     fallback_reason = ""
     libmpv_missing = False
 
@@ -242,6 +244,9 @@ class BaseEngine(QObject):
     def set_audio_device(self, device: QAudioDevice) -> None: ...
     def set_equalizer(self, state: EqState) -> None: ...
     def set_normalize(self, on: bool) -> None: ...
+    def set_loudness(self, on: bool) -> None: ...
+    def set_sound_options(self, exclusive: bool, hq_resample: bool, channels: str) -> None: ...
+    def audio_info(self) -> dict | None: return None
     def shutdown(self) -> None: self.stop()
 
 
@@ -378,6 +383,7 @@ class MpvEngine(BaseEngine):
     without a gap; we notice via `playlist-pos` and preload the one after."""
     name = "mpv"
     supports_eq = True
+    max_volume = 200
 
     # mpv calls back on its own thread; these hop onto the UI thread.
     _sig_pos = Signal(int)
@@ -395,7 +401,7 @@ class MpvEngine(BaseEngine):
         # sub-auto/sid: mpv would otherwise load a song's .lrc file as a subtitle track.
         for opt, value in (("media-controls", "no"), ("input-media-keys", "no"),
                            ("sub-auto", "no"), ("sid", "no"),
-                           ("replaygain-clip", "no"), ("volume-max", "100")):
+                           ("replaygain-clip", "no"), ("volume-max", "100")):   # >100 is done by our boost filter
             try:                                   # not every libmpv build has every option
                 self._m[opt] = value
             except Exception:
@@ -407,6 +413,12 @@ class MpvEngine(BaseEngine):
         self._paused = True
         self._idle = True
         self._eq_sent: EqState | None = None       # what the live filter chain currently has
+        self._eq = EqState()
+        self._boost_db = 0.0                        # gain above 100% volume, in dB
+        self._boost_sent = 0.0
+        self._loudness = False
+        self._volume = 100
+        self._replaygain = False
 
         q = Qt.ConnectionType.QueuedConnection
         self._sig_pos.connect(self._on_pos, q)
@@ -570,25 +582,31 @@ class MpvEngine(BaseEngine):
         self.positionChanged.emit(ms)
 
     def set_volume(self, percent: int) -> None:
-        self._m.volume = max(0, min(100, percent))    # mpv's volume is already perceptual
+        """0-100 uses mpv's (perceptual, cubic) volume; 101-200 keeps mpv at 100 and adds the
+        equivalent gain as a filter before the limiter, so boosted peaks never clip."""
+        p = max(0, min(self.max_volume, int(percent)))
+        self._volume = p
+        self._m.volume = min(p, 100)
+        boost = 60 * math.log10(p / 100) if p > 100 else 0.0     # same cubic curve as mpv: 200% = +18 dB
+        if (boost > 0) != (self._boost_sent > 0):
+            self._boost_db = boost
+            self._rebuild()                  # boost filter added/removed (only when crossing 100%)
+        elif boost > 0 and abs(boost - self._boost_sent) > 0.01:
+            self._boost_db = boost
+            if self._cmd("af-command", "boost", "volume", f"{boost:.2f}dB", "Parsed_volume_0"):
+                self._boost_sent = boost
+            else:
+                self._rebuild()
 
-    def set_audio_device(self, device: QAudioDevice) -> None:
-        if device.isNull():
-            return
-        dev_id = bytes(device.id().data()).decode("utf-8", "replace")
-        name = "auto"
-        try:
-            for d in self._m.audio_device_list:        # e.g. "wasapi/{0.0.0.00000000}.{guid}"
-                if d["name"] == dev_id or d["name"].endswith("/" + dev_id):
-                    name = d["name"]
-                    break
-            if self._m.audio_device != name:
-                self._m.audio_device = name
-        except Exception:
-            pass
+    def _rebuild(self) -> None:
+        chain = build_chain(self._eq, self._boost_db, self._loudness)
+        self._cmd("af", "set", chain) if chain else self._cmd("af", "clr", "")
+        self._eq_sent = self._eq.copy()
+        self._boost_sent = self._boost_db
 
     def set_equalizer(self, state: EqState) -> None:
         prev = self._eq_sent
+        self._eq = state.copy()
         if prev is not None and prev.enabled and state.enabled:
             # Live update: only send changed bands (no re-init, no glitch).
             ok = True
@@ -600,15 +618,66 @@ class MpvEngine(BaseEngine):
             if ok:
                 self._eq_sent = state.copy()
                 return
-        chain = af_chain(state)
-        self._cmd("af", "set", chain) if chain else self._cmd("af", "clr", "")
-        self._eq_sent = state.copy()
+        self._rebuild()
 
     def set_normalize(self, on: bool) -> None:
+        self._replaygain = on
         try:
             self._m["replaygain"] = "track" if on else "no"
         except Exception:
             pass
+
+    def set_loudness(self, on: bool) -> None:
+        if on != self._loudness:
+            self._loudness = on
+            self._rebuild()
+
+    def set_sound_options(self, exclusive: bool, hq_resample: bool, channels: str) -> None:
+        wanted = (exclusive, hq_resample, channels or "auto-safe")
+        if getattr(self, "_sound", None) == wanted:
+            return
+        first = not hasattr(self, "_sound")
+        self._sound = wanted
+        for opt, value in (("audio-exclusive", "yes" if exclusive else "no"),
+                           ("audio-channels", wanted[2]),
+                           # libswresample's own high-quality settings (always available, unlike soxr)
+                           ("audio-swresample-o", "filter_size=64,phase_shift=12,cutoff=0.97" if hq_resample else "")):
+            try:
+                self._m[opt] = value
+            except Exception:
+                pass
+        if not first and not self._idle:
+            self._cmd("ao-reload")           # reopen the output with the new settings
+
+    def _prop(self, name: str):
+        try:
+            return getattr(self._m, name.replace("-", "_"))
+        except Exception:
+            return None
+
+    def audio_info(self) -> dict | None:
+        if self._idle or self.current_track is None:
+            return None
+        processing = []
+        if self._loudness:
+            processing.append("loudness levelling")
+        if self._eq.enabled:
+            processing.append("equalizer")
+        if self._boost_db > 0:
+            processing.append(f"volume boost {self._volume}%")
+        if self._loudness or self._eq.enabled or self._boost_db > 0:
+            processing.append("limiter")
+        if self._volume < 100:
+            processing.append(f"volume {self._volume}%")
+        if self._replaygain:
+            processing.append("ReplayGain")
+        try:
+            exclusive = bool(self._m["audio-exclusive"])
+        except Exception:
+            exclusive = False
+        return {"codec": self._prop("audio-codec-name"), "in": self._prop("audio-params") or {},
+                "out": self._prop("audio-out-params") or {}, "ao": self._prop("current-ao") or "",
+                "exclusive": exclusive, "processing": processing}
 
     def shutdown(self) -> None:
         try:
