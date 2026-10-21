@@ -17,8 +17,8 @@ VSVersionInfo(
         StringStruct('CompanyName', 'Zuqongtech'),
         StringStruct('FileDescription', 'Zuqongsoft Music'),
         StringStruct('FileVersion', '1.0.0.0'),
-        StringStruct('InternalName', 'MusicPlayer'),
-        StringStruct('OriginalFilename', 'MusicPlayer.exe'),
+        StringStruct('InternalName', 'ZuqongsoftMusic'),
+        StringStruct('OriginalFilename', 'ZuqongsoftMusic.exe'),
         StringStruct('ProductName', 'Zuqongsoft Music'),
         StringStruct('ProductVersion', '1.0.0.0'),
         StringStruct('LegalCopyright', '© 2026 Zuqongtech')

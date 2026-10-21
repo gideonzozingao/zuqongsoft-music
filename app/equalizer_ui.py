@@ -15,7 +15,7 @@ from . import libmpv
 from .equalizer import BAND_LABELS, BANDS, CUSTOM, GAIN_RANGE, PREAMP_RANGE, PRESETS, EqState
 from .theme import C
 
-STEP = 0.5                                     # dB per slider step
+STEP = 0.1                                     # dB per slider step (arrow keys)
 
 
 class Switch(QAbstractButton):
@@ -117,7 +117,7 @@ class BandSlider(QWidget):
         self.slider = self._Slider(Qt.Orientation.Vertical)
         steps = int(limit / STEP)
         self.slider.setRange(-steps, steps)
-        self.slider.setPageStep(2)
+        self.slider.setPageStep(5)          # Page Up/Down: 0.5 dB
         self.slider.setMinimumHeight(170)
         self.slider.setCursor(Qt.CursorShape.PointingHandCursor)
         self.slider.setToolTip("Drag, scroll or use the arrow keys. Double-click to reset.")
@@ -173,10 +173,10 @@ class EqualizerDialog(QDialog):
         tabs = QHBoxLayout()
         tabs.setSpacing(0)
         self.page_tabs = []
-        for k, label in enumerate(("Equalizer", "Sound")):
+        for k, label in enumerate(("Equalizer", "Studio", "Sound")):
             b = QPushButton(label, objectName="segment")
             b.setCheckable(True)
-            b.setProperty("seg", "first" if k == 0 else "last")
+            b.setProperty("seg", "first" if k == 0 else "last" if k == 2 else "mid")
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.clicked.connect(lambda _c=False, k=k: self.show_page(k))
             self.page_tabs.append(b)
@@ -186,7 +186,11 @@ class EqualizerDialog(QDialog):
         self.pages = QStackedWidget()
         outer.addWidget(self.pages, 1)
         eq_page = QWidget()
-        self.pages.addWidget(eq_page)
+        eq_scroll = QScrollArea()                 # tall on small screens: scroll like the other tabs
+        eq_scroll.setWidgetResizable(True)
+        eq_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        eq_scroll.setWidget(eq_page)
+        self.pages.addWidget(eq_scroll)
         lay = QVBoxLayout(eq_page)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(14)
@@ -231,10 +235,14 @@ class EqualizerDialog(QDialog):
         self.btn_save = QPushButton("Save preset…")
         self.btn_delete = QPushButton("Delete")
         self.btn_reset = QPushButton("Reset")
+        self.btn_import_tbl = QPushButton("Import…")
+        self.btn_import_tbl.setToolTip("Load a Frequency (Hz) / Gain (dB) table")
+        self.btn_export_tbl = QPushButton("Export…")
+        self.btn_export_tbl.setToolTip("Save these 10 bands and the pre-amp as a Frequency (Hz) / Gain (dB) table")
         presets.addWidget(QLabel("Preset"))
         presets.addWidget(self.preset)
         presets.addStretch(1)
-        for b in (self.btn_save, self.btn_delete, self.btn_reset):
+        for b in (self.btn_save, self.btn_delete, self.btn_import_tbl, self.btn_export_tbl, self.btn_reset):
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             presets.addWidget(b)
         lay.addLayout(presets)
@@ -271,6 +279,34 @@ class EqualizerDialog(QDialog):
             opts.addLayout(row)
         lay.addLayout(opts)
 
+        # automatic EQ rules
+        rules_title = QHBoxLayout()
+        rt = QVBoxLayout()
+        rt.setSpacing(1)
+        rt.addWidget(QLabel("Automatic EQ", objectName="cardTitle"))
+        rh = QLabel("Use a preset automatically for a genre, an album or a song. Add rules here or by "
+                    "right-clicking a song.", objectName="muted")
+        rh.setWordWrap(True)
+        rt.addWidget(rh)
+        rules_title.addLayout(rt, 1)
+        lay.addLayout(rules_title)
+        add = QHBoxLayout()
+        self.rule_genre = QComboBox()
+        self.rule_genre.setEditable(True)
+        self.rule_genre.setMinimumWidth(160)
+        self.rule_genre.lineEdit().setPlaceholderText("Genre")
+        self.rule_preset = QComboBox()
+        self.btn_rule_add = QPushButton("Add genre rule")
+        add.addWidget(self.rule_genre, 1)
+        add.addWidget(QLabel("→"))
+        add.addWidget(self.rule_preset, 1)
+        add.addWidget(self.btn_rule_add)
+        lay.addLayout(add)
+        self.rules_box = QVBoxLayout()
+        self.rules_box.setSpacing(2)
+        lay.addLayout(self.rules_box)
+        self.btn_rule_add.clicked.connect(self._add_genre_rule)
+
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.close)
         from .sound_ui import SoundPage
@@ -279,7 +315,15 @@ class EqualizerDialog(QDialog):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setWidget(self.sound)
+        from .studio_ui import StudioPage
+        self.studio = StudioPage(self.win, Switch, self._save_timer)
+        studio_scroll = QScrollArea()
+        studio_scroll.setWidgetResizable(True)
+        studio_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        studio_scroll.setWidget(self.studio)
+        self.pages.addWidget(studio_scroll)
         self.pages.addWidget(scroll)
+        self.resize(760, 760)
         outer.addWidget(buttons)
         self.show_page(0)
 
@@ -289,6 +333,8 @@ class EqualizerDialog(QDialog):
         self.preset.activated.connect(self._on_preset)
         self.btn_save.clicked.connect(self._save_preset)
         self.btn_delete.clicked.connect(self._delete_preset)
+        self.btn_import_tbl.clicked.connect(self._import_table)
+        self.btn_export_tbl.clicked.connect(self._export_table)
         self.btn_reset.clicked.connect(lambda: self._apply_gains(PRESETS["Flat"], "Flat", preamp=0.0))
         self.preamp.changed.connect(self._on_preamp)
         for i, b in enumerate(self.bands):
@@ -302,17 +348,52 @@ class EqualizerDialog(QDialog):
     def state(self) -> EqState:
         return self.win.eq
 
+    def _fill_rules(self) -> None:
+        while self.rules_box.count():
+            item = self.rules_box.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        rules = self.win.auto_rules()
+        if not rules:
+            empty = QLabel("No rules yet.", objectName="muted")
+            self.rules_box.addWidget(empty)
+        kinds = {"genre": "Genre", "album": "Album", "song": "Song"}
+        for r in rules:
+            w = QWidget()
+            h = QHBoxLayout(w)
+            h.setContentsMargins(0, 0, 0, 0)
+            text = r["label"].replace("genre ", "").replace("the album ", "")
+            h.addWidget(QLabel(f"{kinds[r['kind']]}: {text}  →  <b>{r['preset']}</b>"), 1)
+            rm = QPushButton("Remove")
+            rm.clicked.connect(lambda _c=False, r=r: self.win.add_auto_rule(r["kind"], r["key"], r["label"], None))
+            h.addWidget(rm)
+            self.rules_box.addWidget(w)
+        self.rule_genre.clear()
+        self.rule_genre.addItems(self.win.library.genres())
+        self.rule_genre.setCurrentText("")
+        self.rule_preset.clear()
+        self.rule_preset.addItems(list(PRESETS) + sorted(self.win.eq_store.user_presets(), key=str.casefold))
+
+    def _add_genre_rule(self) -> None:
+        genre = self.rule_genre.currentText().strip()
+        if genre:
+            self.win.add_auto_rule("genre", genre.casefold(), f"genre {genre}", self.rule_preset.currentText())
+
     def show_page(self, k: int) -> None:
         self.pages.setCurrentIndex(k)
         for i, b in enumerate(self.page_tabs):
             b.setChecked(i == k)
 
     def sync(self) -> None:
+        if hasattr(self, "rules_box"):
+            self._fill_rules()
         if hasattr(self, "sound"):
             self.sound.sync()
+        if hasattr(self, "studio"):
+            self.studio.sync()
         st, store = self.state, self.win.eq_store
         supported = self.win.engine.supports_eq
-        for w, v in ((self.enable, st.enabled), (self.per_device, store.per_device),
+        for w, v in ((self.enable, st.enabled and st.mode == "simple"), (self.per_device, store.per_device),
                      (self.normalize, store.normalize)):
             w.blockSignals(True)
             w.setChecked(v)
@@ -321,7 +402,7 @@ class EqualizerDialog(QDialog):
         for b, g in zip(self.bands, st.gains):
             b.set_db(g)
         self._fill_presets()
-        for w in (self.enable, self.preset, self.btn_save, self.btn_reset,
+        for w in (self.enable, self.preset, self.btn_save, self.btn_reset, self.btn_import_tbl, self.btn_export_tbl,
                   self.preamp, *self.bands, self.normalize):
             w.setEnabled(supported)
         self._refresh()
@@ -344,8 +425,9 @@ class EqualizerDialog(QDialog):
 
     def _refresh(self) -> None:
         st = self.state
-        self.state_lbl.setText("On" if st.enabled else "Off")
-        self.curve.set_gains(st.gains, st.enabled and self.win.engine.supports_eq)
+        simple_on = st.enabled and st.mode == "simple"
+        self.state_lbl.setText("On" if simple_on else ("Studio EQ in use" if st.studio_on else "Off"))
+        self.curve.set_gains(st.gains, simple_on and self.win.engine.supports_eq)
         self.btn_delete.setEnabled(self.win.engine.supports_eq and st.preset in self.win.eq_store.user_presets())
 
     def _fill_presets(self) -> None:
@@ -372,6 +454,7 @@ class EqualizerDialog(QDialog):
             self.preset.blockSignals(True)
             self.preset.setCurrentIndex(idx if idx >= 0 else self.preset.findData(CUSTOM))
             self.preset.blockSignals(False)
+        self.win.clear_auto_eq()
         self.win.apply_eq()
         self._refresh()
         self._save_timer.start()
@@ -386,12 +469,15 @@ class EqualizerDialog(QDialog):
     # ---- handlers ------------------------------------------------------------
     def _on_enable(self, on: bool) -> None:
         self.state.enabled = on
+        if on:
+            self.state.mode = "simple"          # the 10-band EQ takes over from Studio
         self._changed(mark_custom=False)
 
     def _on_band(self, i: int, db: float) -> None:
         self.state.gains[i] = db
-        if not self.state.enabled:          # touching a slider turns the EQ on
+        if not self.state.enabled or self.state.mode != "simple":   # touching a slider turns this EQ on
             self.state.enabled = True
+            self.state.mode = "simple"
             self.enable.blockSignals(True)
             self.enable.setChecked(True)
             self.enable.blockSignals(False)
@@ -414,6 +500,7 @@ class EqualizerDialog(QDialog):
         st.gains = [float(g) for g in gains]
         st.preset = name
         st.enabled = True
+        st.mode = "simple"
         if preamp is not None:
             st.preamp = preamp
         self.sync()
@@ -440,6 +527,36 @@ class EqualizerDialog(QDialog):
             self.state.preset = CUSTOM
             self._fill_presets()
             self._changed(mark_custom=False)
+
+    def _export_table(self) -> None:
+        import os
+        from PySide6.QtWidgets import QFileDialog
+        from .equalizer import export_table
+        name = self.state.preset if self.state.preset not in ("", CUSTOM) else "My"
+        path, _ = QFileDialog.getSaveFileName(self, "Export equalizer",
+                                              os.path.join(os.path.expanduser("~"), f"{name} EQ.txt"),
+                                              "Equalizer table (*.txt)")
+        if path:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(export_table(self.state.gains, self.state.preamp))
+            self.win.statusBar().showMessage(f"Exported to {path}", 6000)
+
+    def _import_table(self) -> None:
+        import os
+        from PySide6.QtWidgets import QFileDialog
+        from .equalizer import parse_table
+        path, _ = QFileDialog.getOpenFileName(self, "Import equalizer", os.path.expanduser("~"),
+                                              "Equalizer table (*.txt *.csv *.tsv);;All files (*)")
+        if not path:
+            return
+        try:
+            with open(path, encoding="utf-8-sig", errors="replace") as f:
+                gains, preamp = parse_table(f.read())
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Import equalizer", f"Couldn't use that file.\n\n{exc}")
+            return
+        self._apply_gains(gains, self._matching_preset(gains), preamp=preamp)
+        self.win.statusBar().showMessage(f"Imported {os.path.basename(path)}", 5000)
 
     def _on_per_device(self, on: bool) -> None:
         self.win.set_eq_per_device(on)

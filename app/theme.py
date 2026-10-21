@@ -79,8 +79,10 @@ def make_scheme(seed: str, dark: bool, neutral: float = 4, chroma: float | None 
     S = lambda t: _tone(hue, sc, t)       # noqa: E731
     N = lambda t: _tone(hue, neutral, t)  # noqa: E731
     V = lambda t: _tone(hue, nv, t)       # noqa: E731
+    T = lambda t: _tone(hue + math.radians(60), max(pc * 0.6, 24), t)   # noqa: E731  M3 tertiary: hue shifted 60°
     if dark:
         s = dict(primary=P(80), on_primary=P(20), primary_container=P(30), on_primary_container=P(90),
+                 tertiary=T(80),
                  secondary_container=S(30), on_secondary_container=S(90),
                  surface=N(6), surface_container_lowest=N(4), surface_container_low=N(10),
                  surface_container=N(12), surface_container_high=N(17), surface_container_highest=N(22),
@@ -91,6 +93,7 @@ def make_scheme(seed: str, dark: bool, neutral: float = 4, chroma: float | None 
                      surface_container=N(6), surface_container_high=N(10), surface_container_highest=N(15))
         return s
     return dict(primary=P(40), on_primary="#FFFFFF", primary_container=P(90), on_primary_container=P(10),
+                tertiary=T(40),
                 secondary_container=S(90), on_secondary_container=S(10),
                 surface=N(98), surface_container_lowest="#FFFFFF", surface_container_low=N(96),
                 surface_container=N(94), surface_container_high=N(92), surface_container_highest=N(90),
@@ -231,6 +234,11 @@ QLineEdit#search:focus { background: $surface_container_highest; }
 QPlainTextEdit { background: $surface_container; border: 1px solid $outline_variant; border-radius: 12px;
              padding: 8px; selection-background-color: $primary; selection-color: $on_primary; }
 QPlainTextEdit:focus { border: 2px solid $primary; padding: 7px; }
+QDoubleSpinBox, QSpinBox { background: transparent; border: 1px solid $outline; border-radius: 4px;
+             padding: 6px 8px; selection-background-color: $primary; selection-color: $on_primary; }
+QDoubleSpinBox:focus, QSpinBox:focus { border: 2px solid $primary; padding: 5px 7px; }
+QDoubleSpinBox::up-button, QDoubleSpinBox::down-button { width: 16px; border: none; }
+QLabel#meterValue { font-size: 22px; font-weight: 600; color: $primary; }
 QComboBox { background: transparent; border: 1px solid $outline; border-radius: 4px; padding: 8px 12px; }
 QComboBox QAbstractItemView { background: $surface_container; border: none; outline: 0;
             selection-background-color: $secondary_container; selection-color: $on_secondary_container; }
@@ -255,6 +263,9 @@ QPushButton[kind="filled"]:hover { background: $primary_hi; }
 QPushButton[kind="filled"]:pressed { background: $primary_lo; }
 QPushButton[kind="tonal"] { background: $secondary_container; color: $on_secondary_container; padding: 0 24px 0 16px; }
 QPushButton[kind="tonal"]:hover { background: $tonal_hi; }
+QPushButton[kind="tonal"]:checked { background: $primary; color: $on_primary; }
+QPushButton[kind="tonal"]:checked:hover { background: $primary_hi; }
+QPushButton#slot { padding: 0; min-width: 40px; }
 QPushButton[kind="filled"]:disabled, QPushButton[kind="tonal"]:disabled { background: $disabled_container; color: $disabled; }
 QDialogButtonBox QPushButton { min-width: 64px; }
 
@@ -476,6 +487,12 @@ PATHS = {
     "close": "M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z",
     "more_vert": "M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z",
     "menu": "M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z",
+    "fullscreen": "M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z",
+    "mic": "M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z",
+    "bedtime": "M10 2c-1.82 0-3.53.5-5 1.35C7.99 5.08 10 8.3 10 12s-2.01 6.92-5 8.65C6.47 21.5 8.18 22 10 22c5.52 0 10-4.48 10-10S15.52 2 10 2z",
+    "mini_player": "M19 11h-8v6h8v-6zm4 8V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z",
+    "radio": "M3.24 6.15C2.51 6.43 2 7.17 2 8v12c0 1.1.89 2 2 2h16c1.11 0 2-.9 2-2V8c0-1.11-.89-2-2-2H8.3l8.26-3.34L15.88 1 3.24 6.15zM7 20c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm13-8h-2v-2h-2v2H4V8h16v4z",
+    "lyrics": "M14 17H4v2h10v-2zm6-8H4v2h16V9zM4 15h16v-2H4v2zM4 5v2h16V5H4z",
     "file_upload": "M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z",
 }
 

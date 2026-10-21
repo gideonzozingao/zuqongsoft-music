@@ -89,11 +89,27 @@ class LyricsView(QWidget):
         self._anim.valueChanged.connect(self._set_scroll)
         self._timer = QTimer(self, interval=50)
         self._timer.timeout.connect(self._tick)
+        # style overrides (the full-screen view uses big white text on its own background)
+        self.font_px = 17
+        self.color_current: QColor | None = None
+        self.color_other: QColor | None = None
+        self.fade_color: QColor | None = None
+        self.align_left_plain = True
+
+    def set_style(self, font_px: int, current: QColor | None = None, other: QColor | None = None,
+                  fade: QColor | None = None) -> None:
+        self.font_px, self.color_current, self.color_other, self.fade_color = font_px, current, other, fade
+        self.GAP = max(14, font_px // 2)
+        self._relayout()
+        self.update()
+
+    def lines(self) -> tuple[list, bool]:
+        return self._lines, self._synced
 
     # -- content --
     def _font(self) -> QFont:
         f = QFont(self.font())
-        f.setPixelSize(17)
+        f.setPixelSize(self.font_px)
         f.setWeight(QFont.Weight.Bold)
         return f
 
@@ -212,9 +228,9 @@ class LyricsView(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         if self._status:
             f = QFont(self.font())
-            f.setPixelSize(14)
+            f.setPixelSize(max(14, self.font_px - 3))
             p.setFont(f)
-            p.setPen(QColor(C["on_surface_variant"]))
+            p.setPen(QColor(self.color_other or C["on_surface_variant"]))
             p.drawText(self.rect().adjusted(self.PAD, 0, -self.PAD, 0),
                        Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, self._status)
             return
@@ -233,19 +249,21 @@ class LyricsView(QWidget):
                 hover.setAlphaF(0.08)
                 p.fillPath(bg, hover)
             if not self._synced:
-                colour, font = QColor(C["on_surface"]), regular
+                colour, font = QColor(self.color_other or C["on_surface"]), regular
                 colour.setAlphaF(0.85)
             elif i == self._current:
-                colour, font = QColor(C["primary"]), bold
+                colour, font = QColor(self.color_current or C["primary"]), bold
             else:
-                colour, font = QColor(C["on_surface_variant"]), regular
+                colour, font = QColor(self.color_other or C["on_surface_variant"]), regular
                 colour.setAlphaF(0.45 if i < self._current else 0.75)
             p.setFont(font)
             p.setPen(colour)
             align = (Qt.AlignmentFlag.AlignHCenter if self._synced else Qt.AlignmentFlag.AlignLeft)
             p.drawText(rect, align | Qt.TextFlag.TextWordWrap, text or "♪")
         # fade top and bottom into the panel colour
-        bg = QColor(C["surface_container_low"])
+        if self.fade_color is not None and self.fade_color.alpha() == 0:
+            return
+        bg = QColor(self.fade_color or C["surface_container_low"])
         for y0, y1 in ((0, 28), (self.height(), self.height() - 28)):
             g = QLinearGradient(0, y0, 0, y1)
             g.setColorAt(0, bg)
@@ -257,6 +275,7 @@ class LyricsView(QWidget):
 
 class LyricsPanel(QWidget):
     seekRequested = Signal(int)
+    lyricsChanged = Signal()          # the view's lines/status changed (full-screen view mirrors it)
 
     def __init__(self, library, settings, window, parent=None) -> None:
         super().__init__(parent)
@@ -426,6 +445,7 @@ class LyricsPanel(QWidget):
             self.view.set_status("Lyrics appear here when a song plays.")
             return
         self.view.set_status("Loading lyrics…")
+        self.lyricsChanged.emit()
         self._request(online=self.online and self._active)
 
     def _request(self, online: bool) -> None:
@@ -436,6 +456,7 @@ class LyricsPanel(QWidget):
             return                                  # an old track's answer
         hint = ""
         self._lyr = lyr if status == "ok" else None
+        QTimer.singleShot(0, self.lyricsChanged.emit)
         self.empty_row.setVisible(status in ("none", "offline") and not (self.online and not self._active))
         if status == "ok" and lyr is not None:
             if lyr.instrumental:
@@ -615,8 +636,14 @@ class QueuePanel(QWidget):
         self.btn_clear = QPushButton("Clear queue")
         self.btn_clear.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_clear.setToolTip("Remove the songs you queued (the album or playlist stays)")
+        self.btn_autoplay = QPushButton("Autoplay")
+        self.btn_autoplay.setCheckable(True)
+        self.btn_autoplay.setProperty("kind", "tonal")
+        self.btn_autoplay.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_autoplay.setToolTip("When Up Next runs low, keep adding songs that fit what's playing")
         head.addWidget(self.count, 1)
         head.addWidget(self.btn_clear)
+        head.addWidget(self.btn_autoplay)
         self.model = QueueModel()
         v = self.view = QListView()
         v.setModel(self.model)
@@ -633,7 +660,8 @@ class QueuePanel(QWidget):
         v.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         v.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         v.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.empty = QLabel("Nothing up next.\n\nRight-click any song and choose\nPlay next or Add to queue.",
+        self.empty = QLabel("Nothing up next.\n\nRight-click any song and choose Play next or\nAdd to queue, "
+                            "or turn on Autoplay.",
                             objectName="muted")
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty.setWordWrap(True)

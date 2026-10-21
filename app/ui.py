@@ -9,7 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import (QEvent, QModelIndex, QProcess, QRect, QRectF, QSettings, QSize, QStandardPaths, Qt,
+from PySide6.QtCore import (QEvent, QModelIndex, QProcess, QThread, QRect, QRectF, QSettings, QSize, QStandardPaths, Qt,
                             QTimer, QUrl, Signal)
 from PySide6.QtGui import (QAction, QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QKeySequence, QPainter,
                            QPainterPath, QPixmap, QShortcut)
@@ -34,7 +34,12 @@ from .panels import LyricsPanel, QueuePanel, StarBar
 from .play_tracker import PlayTracker
 from .responsive import PaneAnimator
 from .stats_page import StatsPage
-from .sound_ui import sound_settings
+from .sound_ui import sound_settings, speaker_settings
+from .loudness_scan import LoudnessScanner
+from .radio import Radio
+from .fullscreen import FullScreenView, KaraokeDialog
+from .mini import MiniPlayer, SleepTimer, Tray, sleep_menu
+from .equalizer import PRESETS as EQ_PRESETS
 from .theme import C, icon
 
 COVER = 252
@@ -157,7 +162,7 @@ def add_action(menu: QMenu, icon_name: str | None, text: str, fn, enabled: bool 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Music")
+        self.setWindowTitle("Zuqongsoft Music")
         self.resize(1280, 800)
         self.setMinimumSize(560, 560)
         self.setAcceptDrops(True)
@@ -180,6 +185,19 @@ class MainWindow(QMainWindow):
         self._pause_on_disconnect = True
         self.eq_store = EqStore(self.settings)
         self.eq = EqState()
+        self._auto_eq: tuple[dict, EqState] | None = None     # (rule, EQ) while an automatic EQ rule applies
+        self._scanner: LoudnessScanner | None = None
+        self.loudness_status = ""
+        self.radio = Radio(self.library)
+        self._radio_session = False             # "Start radio" keeps the queue topped up
+        self._fs: FullScreenView | None = None
+        self._mini: MiniPlayer | None = None
+        self._karaoke_dialog: KaraokeDialog | None = None
+        self._karaoke = [False, float(self.settings.value("karaoke/vocal", 0.8)),
+                         int(self.settings.value("karaoke/key", 0))]
+        self._quitting = False
+        self._tray_hint_shown = False
+        self.engine.trim_lookup = self.library.trim_for
         self._eq_device: str | None = None
         self._eq_dialog: EqualizerDialog | None = None
         self._cover_src: QPixmap | None = None
@@ -201,6 +219,9 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._build_menu()
+        self.sleep = SleepTimer(self.engine, self)
+        app_icon = QApplication.windowIcon()
+        self.tray = Tray(self, app_icon if not app_icon.isNull() else icon("library_music", C["primary"]))
         self.media = system_media.create(self)
         self._connect()
         self._restore()
@@ -255,7 +276,7 @@ class MainWindow(QMainWindow):
         self.btn_theme = icon_button("palette", "Theme and appearance (Ctrl+T)")
         brand = QHBoxLayout()
         brand.setContentsMargins(0, 0, 16, 0)
-        brand.addWidget(QLabel("Music", objectName="brand"), 1)
+        brand.addWidget(QLabel("Zuqongsoft Music", objectName="brand"), 1)
         brand.addWidget(self.btn_theme, 0, Qt.AlignmentFlag.AlignVCenter)
         lay.addLayout(brand)
         lay.addWidget(self.nav, 1)
@@ -556,6 +577,8 @@ class MainWindow(QMainWindow):
         menu_action(m, "&Find", lambda: (self.search.setFocus(), self.search.selectAll()), "Ctrl+F")
         m.addSeparator()
         menu_action(m, "Show &Sidebar", self.toggle_drawer, "Ctrl+B")
+        menu_action(m, "&Full Screen", self.show_fullscreen, "F11")
+        menu_action(m, "&Mini Player", self.show_mini, "Ctrl+M")
         menu_action(m, "Now &Playing", lambda: self._set_np_tab(0), "Ctrl+P")
         menu_action(m, "&Lyrics", lambda: self._set_np_tab(1), "Ctrl+L")
         menu_action(m, "&Up Next", lambda: self._set_np_tab(2), "Ctrl+U")
@@ -574,8 +597,16 @@ class MainWindow(QMainWindow):
         self.act_shuffle = menu_action(m, "S&huffle", self._set_shuffle, "Ctrl+S", checkable=True)
         menu_action(m, "Cycle &Repeat", self._cycle_repeat, "Ctrl+R")
         m.addSeparator()
+        self.act_dj = menu_action(m, "&DJ Mode (crossfades)", self._toggle_dj, "Ctrl+D", checkable=True)
+        self.act_autoplay = menu_action(m, "&Autoplay Similar Songs", self._set_autoplay, checkable=True)
+        menu_action(m, "&Karaoke…", self.show_karaoke, "Ctrl+K")
+        self.sleep_menu = m.addMenu("S&leep Timer")
+        theme.bind(self.sleep_menu.menuAction(), "bedtime")
+        self.act_tray = menu_action(m, "Keep Playing in the &Tray When Closed", self._set_keep_in_tray, checkable=True)
+        m.addSeparator()
         menu_action(m, "&Equalizer…", self.show_equalizer, "Ctrl+E")
-        menu_action(m, "&Sound Settings…", lambda: self.show_equalizer(page=1), "Ctrl+Shift+E")
+        menu_action(m, "&Sound Settings…", lambda: self.show_equalizer(page=2), "Ctrl+Shift+E")
+        menu_action(m, "Studio &EQ…", lambda: self.show_equalizer(page=1), "Ctrl+Alt+E")
         m.addSeparator()
         self.act_hotkeys = menu_action(m, "&Global Hotkeys", self._set_hotkeys, checkable=True)
         m.addSeparator()
@@ -610,6 +641,14 @@ class MainWindow(QMainWindow):
         self.stars.rated.connect(self._rate_current)
         self.stats_page.playPaths.connect(self._play_paths)
         self.stats_page.openAlbum.connect(self._open_album)
+        e.queueChanged.connect(lambda: QTimer.singleShot(0, self._radio_top_up))
+        e.positionChanged.connect(self._on_position_extra)
+        e.playingChanged.connect(self._on_playing_extra)
+        self.lyrics.lyricsChanged.connect(lambda: self._fs.sync_lyrics() if self._fs and self._fs.isVisible() else None)
+        self.sleep.changed.connect(self._on_sleep_status)
+        self.sleep_menu.aboutToShow.connect(lambda: sleep_menu(self.sleep_menu, self.sleep))
+        self.queue_panel.btn_autoplay.toggled.connect(self._set_autoplay)
+        self.cover.installEventFilter(self)
         self.devices.devicesChanged.connect(self._apply_output)
         self.devices.deviceConnected.connect(self._on_device_connected)
         self.devices.deviceDisconnected.connect(self._on_device_disconnected)
@@ -696,6 +735,14 @@ class MainWindow(QMainWindow):
         self._auto_switch = self.settings.value("audio/auto_switch", True, type=bool)
         self._pause_on_disconnect = self.settings.value("audio/pause_on_disconnect", True, type=bool)
         self._set_np_tab(int(self.settings.value("ui/np_tab", 0) or 0) % 3)
+        for act, key in ((self.act_dj, "dj/enabled"), (self.act_autoplay, "playback/autoplay"),
+                         (self.act_tray, "ui/keep_in_tray")):
+            act.blockSignals(True)
+            act.setChecked(self.settings.value(key, False, type=bool))
+            act.blockSignals(False)
+        self.queue_panel.btn_autoplay.blockSignals(True)
+        self.queue_panel.btn_autoplay.setChecked(self.act_autoplay.isChecked())
+        self.queue_panel.btn_autoplay.blockSignals(False)
         self._apply_output()
         self.engine.set_normalize(self.eq_store.normalize)
         self.apply_sound_settings()
@@ -750,8 +797,22 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Ready to resume “{rows[idx]['title']}” at {fmt(pos)}", 6000)
 
     def closeEvent(self, event) -> None:
+        if (not self._quitting and self.settings.value("ui/keep_in_tray", False, type=bool)
+                and self.tray.tray.isVisible()):
+            event.ignore()                       # keep playing; the tray icon brings the window back
+            self.hide()
+            if not self._tray_hint_shown:
+                self._tray_hint_shown = True
+                self.tray.tray.showMessage("Zuqongsoft Music", "Still playing here. Right-click the icon for "
+                                           "controls, or choose Quit.", QIcon(), 4000)
+            return
+        for w in (self._fs, self._mini):
+            if w is not None:
+                w.close()
+        self.tray.tray.hide()
         self._save_session()                 # before stop() resets the position
         self.tracker.finish(closing=True)
+        self.stop_loudness_scan()
         self.lyrics.shutdown()
         if self.scanner is not None and self.scanner.isRunning():
             self.scanner.requestInterruption()
@@ -971,6 +1032,9 @@ class MainWindow(QMainWindow):
         w = self.scanner
         if w is not None:
             self.statusBar().showMessage(f"Library updated: {w.changed} new or changed, {w.removed} removed", 6000)
+            if w.changed and (self.settings.value("sound/level", False, type=bool)
+                              or self.settings.value("dj/enabled", False, type=bool)):
+                self.start_loudness_scan()
             if w.changed or w.removed:
                 self.covers.clear()
                 self._refresh_nav()
@@ -1101,10 +1165,14 @@ class MainWindow(QMainWindow):
         sel = self._selected_tracks()
         m = QMenu(self)
         add_action(m, "play_arrow", "Play", lambda: self._play_rows(self.tracks.tracks(), idx.row()))
+        if len(sel) == 1:
+            add_action(m, "radio", "Start radio from this song", lambda: self.start_radio(sel[0]))
         self._queue_actions(m, sel)
         m.addSeparator()
         self._playlist_submenu(m, [t["path"] for t in sel])
         self._rate_submenu(m, sel)
+        if len(sel) == 1 and self.engine.supports_eq:
+            self._auto_eq_menu(m, sel[0])
         if self.view["kind"] == "playlist":
             can_move = len(sel) == 1 and self.tracks.natural_order() and not self.search.text()
             m.addSeparator()
@@ -1240,6 +1308,7 @@ class MainWindow(QMainWindow):
             self._set_shuffle(shuffle)
         if start is None:
             start = random.randrange(len(rows)) if shuffle else 0
+        self._radio_session = False
         same_view = view == self.view
         self._queue_source = self._source_for(view, None if same_view else "")
         if not same_view:
@@ -1278,6 +1347,14 @@ class MainWindow(QMainWindow):
         self.lyrics.load(t)
         self._refresh_now_playing_stats()
         self._theme_from_art(pm if has_cover else None)
+        self._apply_track_level(t)
+        self._apply_auto_eq(t)
+        art = pm if has_cover else None
+        if self._fs is not None:
+            self._fs.set_track(t, art)
+        if self._mini is not None:
+            self._mini.set_track(t, art)
+        self.tray.set_track(t, self.sleep.remaining_text())
         self.media.update_track(t, data if has_cover else None)
         self.tracks.set_playing(t["id"])
         row = self.tracks.row_of(t["id"])
@@ -1345,6 +1422,201 @@ class MainWindow(QMainWindow):
         self.vol.update()
         self.engine.set_loudness(s["loudness"])
         self.engine.set_sound_options(s["exclusive"], s["hq_resample"], s["channels"])
+        self.engine.set_speaker(speaker_settings(self.settings))
+        level = self.settings.value("sound/level", False, type=bool) and self.engine.supports_eq
+        self.engine.set_normalize(self.eq_store.normalize and not level)     # levelling replaces ReplayGain
+        self._apply_track_level(self.engine.current_track)
+        st = self.settings
+        dj = st.value("dj/enabled", False, type=bool)
+        trim = dj and st.value("dj/trim", True, type=bool)
+        self.engine.set_dj(int(float(st.value("dj/crossfade", 6)) * 1000) if dj else 0, trim,
+                           dj and st.value("dj/fades", True, type=bool), st.value("dj/keep_albums", True, type=bool))
+        if level or trim:
+            self.start_loudness_scan()          # measures loudness and silent intros/outros
+
+    # ---- DJ mode, autoplay, radio -----------------------------------------------------
+    def _toggle_dj(self, on: bool) -> None:
+        self.settings.setValue("dj/enabled", on)
+        self.apply_sound_settings()
+        xf = float(self.settings.value("dj/crossfade", 6))
+        self.statusBar().showMessage(f"DJ mode on: {xf:g} s crossfades, smooth fades" if on else "DJ mode off", 4000)
+        if self._eq_dialog is not None and self._eq_dialog.isVisible():
+            self._eq_dialog.sync()
+
+    def _set_autoplay(self, on: bool) -> None:
+        self.settings.setValue("playback/autoplay", on)
+        for w in (self.act_autoplay, self.queue_panel.btn_autoplay):
+            w.blockSignals(True)
+            w.setChecked(on)
+            w.blockSignals(False)
+        if on:
+            self._radio_top_up()
+
+    def start_radio(self, seed: dict) -> None:
+        picks = self.radio.pick([seed], {seed["path"]}, 9)
+        self._radio_session = False
+        self._queue_source = dict(SONGS)
+        self.engine.set_queue([seed] + picks, 0)
+        self._radio_session = True
+        self.statusBar().showMessage(f"Radio based on “{seed['title']}”: songs that fit will keep coming", 5000)
+        self._set_np_tab(2)
+
+    def _radio_top_up(self) -> None:
+        """Keep at least three songs coming when autoplay or a radio is on."""
+        if not (self._radio_session or self.settings.value("playback/autoplay", False, type=bool)):
+            return
+        cur = self.engine.current_track
+        upcoming = [t for t, _u in self.engine.upcoming_items()]
+        if cur is None or len(upcoming) >= 3:
+            return
+        seeds = [cur] + upcoming[-3:]
+        exclude = {t["path"] for t in self.engine._queue}
+        picks = self.radio.pick(seeds, exclude, 8)
+        if picks:
+            self.engine.extend(picks)
+
+    # ---- karaoke ------------------------------------------------------------------------
+    def karaoke_state(self) -> tuple[bool, float, int]:
+        return self._karaoke[0], self._karaoke[1], self._karaoke[2]
+
+    def set_karaoke(self, on: bool | None = None, vocal: float | None = None, key: int | None = None) -> None:
+        if not self.engine.supports_eq:
+            self.statusBar().showMessage("Karaoke needs the mpv audio engine (see Playback > Equalizer).", 6000)
+            return
+        k = self._karaoke
+        if on is not None:
+            k[0] = on
+        if vocal is not None:
+            k[1] = max(0.0, min(1.0, vocal))
+            self.settings.setValue("karaoke/vocal", k[1])
+        if key is not None:
+            k[2] = max(-6, min(6, int(key)))
+            self.settings.setValue("karaoke/key", k[2])
+        self.engine.set_karaoke(k[1] if k[0] else 0.0, k[2] if k[0] else 0)
+        for w in (self._karaoke_dialog.controls if self._karaoke_dialog else None,):
+            if w is not None:
+                w.sync()
+        if self._fs is not None:
+            self._fs.refresh_karaoke()
+
+    def show_karaoke(self) -> None:
+        if self._karaoke_dialog is None:
+            self._karaoke_dialog = KaraokeDialog(self)
+        self._karaoke_dialog.controls.sync()
+        self._karaoke_dialog.show()
+        self._karaoke_dialog.raise_()
+
+    # ---- full screen, mini player, tray ---------------------------------------------------
+    def show_fullscreen(self) -> None:
+        if self._fs is None:
+            self._fs = FullScreenView(self)
+            self._fs.closed.connect(self._fullscreen_closed)
+        t = self.engine.current_track
+        self._fs.set_track(t, self._cover_src)
+        self.lyrics.set_active(True)                 # look lyrics up online while full screen
+        self._fs.sync_lyrics()
+        self._fs.set_playing(self.engine.is_playing)
+        self._fs.refresh_karaoke()
+        self._fs.open()
+
+    def _fullscreen_closed(self) -> None:
+        self.lyrics.set_active(self.np_stack.currentIndex() == 1)
+        studio_open = self._eq_dialog is not None and self._eq_dialog.isVisible() \
+            and self._eq_dialog.pages.currentIndex() == 1 and self._eq_dialog.studio.spectrum.isChecked()
+        self.engine.set_rta(studio_open)
+
+    def show_mini(self) -> None:
+        if self._mini is None:
+            self._mini = MiniPlayer(self)
+            self._mini.expandRequested.connect(self.show_main)
+            pos = self.settings.value("mini/pos")
+            if pos is not None:
+                self._mini.move(pos)
+            else:
+                geo = self.screen().availableGeometry()
+                self._mini.move(geo.right() - self._mini.width() - 24, geo.bottom() - self._mini.height() - 24)
+        self._mini.set_track(self.engine.current_track, self._cover_src)
+        self._mini.set_playing(self.engine.is_playing)
+        self._mini.show()
+        self._mini.raise_()
+        self.hide()
+
+    def show_main(self) -> None:
+        if self._mini is not None:
+            self._mini.hide()
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def toggle_main(self) -> None:
+        if self.isVisible() and not self.isMinimized():
+            self.hide()
+        else:
+            self.show_main()
+
+    def quit_app(self) -> None:
+        self._quitting = True
+        self.close()
+        QApplication.quit()
+
+    def _set_keep_in_tray(self, on: bool) -> None:
+        self.settings.setValue("ui/keep_in_tray", on)
+
+    def _on_sleep_status(self, text: str) -> None:
+        if not hasattr(self, "sleep_lbl"):
+            self.sleep_lbl = QPushButton("")
+            self.sleep_lbl.setToolTip("Sleep timer: click to cancel")
+            theme.bind(self.sleep_lbl, "bedtime", "primary")
+            self.sleep_lbl.clicked.connect(lambda: self.sleep.cancel())
+            self.statusBar().addPermanentWidget(self.sleep_lbl)
+        self.sleep_lbl.setVisible(bool(text))
+        self.sleep_lbl.setText(f"Sleep {text}" if text.startswith("after") else f"Sleep in {text}")
+        self.tray.set_track(self.engine.current_track, text)
+
+    def _on_position_extra(self, ms: int) -> None:
+        if self._fs is not None and self._fs.isVisible():
+            self._fs.lyrics.set_position(ms, self.engine.is_playing)
+
+    def _on_playing_extra(self, playing: bool) -> None:
+        if self._fs is not None:
+            self._fs.set_playing(playing)
+        if self._mini is not None:
+            self._mini.set_playing(playing)
+
+    # ---- library loudness levelling ------------------------------------------------
+    def _apply_track_level(self, t: dict | None) -> None:
+        if not self.settings.value("sound/level", False, type=bool) or not self.engine.supports_eq:
+            self.engine.set_track_gain(None)
+            return
+        target = float(self.settings.value("sound/level_target", -14.0))
+        lufs = self.library.loudness_for(t["path"]) if t else None
+        self.engine.set_track_gain(max(-20.0, min(12.0, target - lufs)) if lufs is not None else 0.0)
+
+    def start_loudness_scan(self) -> None:
+        if self._scanner is not None and self._scanner.isRunning():
+            return
+        if not self.engine.supports_eq or not self.library.unscanned_tracks():
+            done, total = self.library.loudness_progress()
+            self.loudness_status = f"All {total} songs measured" if total else ""
+            return
+        self._scanner = LoudnessScanner(self.library, self)
+        self._scanner.progress.connect(self._scan_progress)
+        self._scanner.measured.connect(self._scan_measured)
+        self._scanner.start(QThread.Priority.LowPriority)
+
+    def stop_loudness_scan(self) -> None:
+        if self._scanner is not None and self._scanner.isRunning():
+            self._scanner.requestInterruption()
+            self._scanner.wait(3000)
+
+    def _scan_progress(self, done: int, total: int) -> None:
+        self.loudness_status = (f"Measured {done:,} of {total:,} songs" if done < total
+                                else f"All {total:,} songs measured")
+
+    def _scan_measured(self, path: str, _lufs) -> None:
+        cur = self.engine.current_track
+        if cur and cur["path"] == path:
+            self._apply_track_level(cur)
 
     def _boost_allowed_now(self, v: int) -> bool:
         """One-time hearing warning the first time you go past 100% on headphones or Bluetooth."""
@@ -1524,6 +1796,9 @@ class MainWindow(QMainWindow):
         self.table.setColumnHidden(2, w < 340)            # Artist
 
     def eventFilter(self, obj, ev) -> bool:
+        if obj is self.cover and ev.type() == QEvent.Type.MouseButtonDblClick:
+            self.show_fullscreen()
+            return True
         if ev.type() == QEvent.Type.Resize:
             if obj is self.np_w and not self.panes.running:
                 self._cover_timer.start()
@@ -1585,6 +1860,8 @@ class MainWindow(QMainWindow):
             self._on_volume(self.vol.value())
             self._update_output_chip()
             self._refresh_eq_button()
+            if self._mini is not None:
+                self._mini.refresh_theme()
             if self._eq_dialog is not None:
                 self._eq_dialog.update()
                 self._eq_dialog.curve.update()
@@ -1620,8 +1897,91 @@ class MainWindow(QMainWindow):
             self._eq_dialog.sync()
 
     def apply_eq(self) -> None:
-        self.engine.set_equalizer(self.eq)
+        self.engine.set_equalizer(self._auto_eq[1] if self._auto_eq else self.eq)
         self._refresh_eq_button()
+
+    # ---- automatic EQ (per genre / album / song) --------------------------------------
+    def auto_rules(self) -> list[dict]:
+        try:
+            rules = json.loads(self.settings.value("eq/auto_rules", "") or "[]")
+        except (TypeError, ValueError):
+            rules = []
+        return [r for r in rules if isinstance(r, dict) and r.get("kind") in ("song", "album", "genre")]
+
+    def set_auto_rules(self, rules: list[dict]) -> None:
+        self.settings.setValue("eq/auto_rules", json.dumps(rules))
+        self._apply_auto_eq(self.engine.current_track)
+        if self._eq_dialog is not None and self._eq_dialog.isVisible():
+            self._eq_dialog.sync()
+
+    @staticmethod
+    def _album_key(t: dict) -> str:
+        return f"{t.get('album', '')}\x1f{t.get('album_artist') or t.get('artist', '')}"
+
+    def _rule_for(self, t: dict | None) -> dict | None:
+        if not t:
+            return None
+        rules = self.auto_rules()
+        for kind, key in (("song", t.get("path", "")), ("album", self._album_key(t)),
+                          ("genre", (t.get("genre") or "").casefold())):
+            for r in rules:
+                if r["kind"] == kind and key and (r["key"].casefold() if kind == "genre" else r["key"]) == key:
+                    return r
+        return None
+
+    def _preset_gains(self, name: str) -> list[float] | None:
+        if name in EQ_PRESETS:
+            return [float(g) for g in EQ_PRESETS[name]]
+        user = self.eq_store.user_presets().get(name)
+        return [float(g) for g in user] if user else None
+
+    def _apply_auto_eq(self, t: dict | None) -> None:
+        rule = self._rule_for(t)
+        gains = self._preset_gains(rule["preset"]) if rule else None
+        if rule and gains is not None:
+            override = self.eq.copy()
+            override.enabled, override.mode, override.gains, override.preset = True, "simple", gains, rule["preset"]
+            changed = not self._auto_eq or self._auto_eq[0] != rule
+            self._auto_eq = (rule, override)
+            self.apply_eq()
+            if changed:
+                self.statusBar().showMessage(f"Automatic EQ: {rule['preset']} (for {rule['label']})", 5000)
+        elif self._auto_eq:
+            self._auto_eq = None
+            self.apply_eq()
+
+    def clear_auto_eq(self) -> None:
+        """Editing the EQ by hand takes over from an automatic rule for the current song."""
+        self._auto_eq = None
+
+    def add_auto_rule(self, kind: str, key: str, label: str, preset: str | None) -> None:
+        rules = [r for r in self.auto_rules() if not (r["kind"] == kind and r["key"] == key)]
+        if preset:
+            rules.append({"kind": kind, "key": key, "label": label, "preset": preset})
+        self.set_auto_rules(rules)
+
+    def _auto_eq_menu(self, menu: QMenu, t: dict) -> None:
+        sub = menu.addMenu(icon("equalizer"), "Automatic EQ")
+        presets = list(EQ_PRESETS) + sorted(self.eq_store.user_presets(), key=str.casefold)
+        current = {r["kind"]: r for r in self.auto_rules()
+                   if r["key"] in (t["path"], self._album_key(t), (t.get("genre") or "").casefold())
+                   or (r["kind"] == "genre" and r["key"].casefold() == (t.get("genre") or "").casefold())}
+        targets = [("song", t["path"], f"“{t['title']}”", "For this song"),
+                   ("album", self._album_key(t), f"the album {t['album']}", "For this album")]
+        if t.get("genre"):
+            targets.append(("genre", t["genre"].casefold(), f"genre {t['genre']}", f"For genre “{t['genre']}”"))
+        for kind, key, label, text in targets:
+            m = sub.addMenu(text)
+            now = current.get(kind)
+            for name in presets:
+                a = m.addAction(name)
+                a.setCheckable(True)
+                a.setChecked(bool(now and now["preset"] == name))
+                a.triggered.connect(lambda _c=False, k=kind, ky=key, lb=label, n=name: self.add_auto_rule(k, ky, lb, n))
+            m.addSeparator()
+            off = m.addAction("No automatic EQ")
+            off.setEnabled(bool(now))
+            off.triggered.connect(lambda _c=False, k=kind, ky=key, lb=label: self.add_auto_rule(k, ky, lb, None))
 
     def save_eq(self) -> None:
         self.eq_store.save(self._out_id(), self.eq)
@@ -1632,9 +1992,14 @@ class MainWindow(QMainWindow):
         self.save_eq()                      # current curve becomes this device's (or the shared) profile
 
     def _refresh_eq_button(self) -> None:
-        on = self.eq.enabled and self.engine.supports_eq
+        eff = self._auto_eq[1] if getattr(self, "_auto_eq", None) else self.eq
+        on = eff.enabled and self.engine.supports_eq
         self._set_toggle(self.btn_eq, "equalizer", on)
-        self.btn_eq.setToolTip(f"Equalizer: {self.eq.preset if on else 'off'} (Ctrl+E)")
+        eff = self._auto_eq[1] if self._auto_eq else self.eq
+        what = f"Studio EQ ({eff.studio.name})" if eff.studio_on else eff.preset
+        if self._auto_eq:
+            what += f", automatic for {self._auto_eq[0]['label']}"
+        self.btn_eq.setToolTip(f"Equalizer: {what if eff.enabled else 'off'} (Ctrl+E)")
 
     def restart_app(self) -> None:
         """Relaunch (used after installing libmpv). State is saved by closeEvent first."""
@@ -1774,7 +2139,7 @@ def run() -> int:
     app = QApplication(sys.argv)
     app.setOrganizationName("Zuqongtech")
     app.setApplicationName("MusicPlayer")
-    app.setApplicationDisplayName("Music")
+    app.setApplicationDisplayName("Zuqongsoft Music")
     s = QSettings()
     art = str(s.value("theme/art_seed", "") or "")
     if "|" in art:

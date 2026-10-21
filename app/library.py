@@ -27,7 +27,17 @@ CREATE TABLE IF NOT EXISTS tracks (
     track_no     INTEGER NOT NULL DEFAULT 0,
     duration_ms  INTEGER NOT NULL DEFAULT 0,
     mtime        REAL NOT NULL DEFAULT 0,
-    added        REAL NOT NULL DEFAULT 0
+    added        REAL NOT NULL DEFAULT 0,
+    genre        TEXT NOT NULL DEFAULT ''
+);
+-- Measured loudness (EBU R128 integrated, LUFS) for library-wide levelling.
+CREATE TABLE IF NOT EXISTS track_loudness (
+    path     TEXT PRIMARY KEY,
+    lufs     REAL,
+    mtime    REAL NOT NULL,
+    intro_ms INTEGER,               -- silent intro length (DJ mode skips it)
+    outro_ms INTEGER,               -- where trailing silence starts
+    ver      INTEGER NOT NULL DEFAULT 1
 );
 -- Listening stats are keyed by path so they survive rescans.
 CREATE TABLE IF NOT EXISTS track_stats (
@@ -78,11 +88,12 @@ CREATE INDEX IF NOT EXISTS idx_plays_time ON plays(played_at);
 """
 
 UPSERT = """
-INSERT INTO tracks (path, title, artist, album, album_artist, disc_no, track_no, duration_ms, mtime, added)
-VALUES (:path, :title, :artist, :album, :album_artist, :disc_no, :track_no, :duration_ms, :mtime, :added)
+INSERT INTO tracks (path, title, artist, album, album_artist, disc_no, track_no, duration_ms, mtime, added, genre)
+VALUES (:path, :title, :artist, :album, :album_artist, :disc_no, :track_no, :duration_ms, :mtime, :added, :genre)
 ON CONFLICT(path) DO UPDATE SET
     title=excluded.title, artist=excluded.artist, album=excluded.album,
     album_artist=excluded.album_artist, disc_no=excluded.disc_no, track_no=excluded.track_no,
+    genre=excluded.genre,
     duration_ms=excluded.duration_ms, mtime=excluded.mtime
 """
 
@@ -131,7 +142,7 @@ def _filter(text: str, cols=("title", "artist", "album")) -> tuple[str, list]:
 # ---- tags ------------------------------------------------------------------
 # Formats without an "easy" mapping (e.g. ID3 inside WAV) expose raw ID3 frames.
 ID3_FRAMES = {"title": "TIT2", "artist": "TPE1", "albumartist": "TPE2",
-              "album": "TALB", "tracknumber": "TRCK", "discnumber": "TPOS"}
+              "album": "TALB", "tracknumber": "TRCK", "discnumber": "TPOS", "genre": "TCON"}
 
 
 def _first(audio, key: str) -> str:
@@ -164,7 +175,7 @@ def read_tags(path: str, mtime: float) -> dict:
     stem = os.path.splitext(os.path.basename(path))[0]
     info = {
         "path": path, "title": stem, "artist": "Unknown Artist", "album": "Unknown Album",
-        "album_artist": "", "disc_no": 0, "track_no": 0, "duration_ms": 0, "mtime": mtime,
+        "album_artist": "", "disc_no": 0, "track_no": 0, "duration_ms": 0, "mtime": mtime, "genre": "",
     }
     try:
         audio = mutagen.File(path, easy=True)
@@ -183,6 +194,7 @@ def read_tags(path: str, mtime: float) -> dict:
     info["album_artist"] = album_artist
     info["track_no"] = _num(_first(audio, "tracknumber"))
     info["disc_no"] = _num(_first(audio, "discnumber"))
+    info["genre"] = _first(audio, "genre")
     return info
 
 
@@ -270,6 +282,13 @@ class Library:
             if name not in cols:
                 c.execute(f"ALTER TABLE tracks ADD COLUMN {name} {ddl}")
                 added = True
+        lcols = {r["name"] for r in c.execute("PRAGMA table_info(track_loudness)")}
+        for name, ddl in (("intro_ms", "INTEGER"), ("outro_ms", "INTEGER"), ("ver", "INTEGER NOT NULL DEFAULT 1")):
+            if lcols and name not in lcols:
+                c.execute(f"ALTER TABLE track_loudness ADD COLUMN {name} {ddl}")
+        if "genre" not in cols:
+            c.execute("ALTER TABLE tracks ADD COLUMN genre TEXT NOT NULL DEFAULT ''")
+            c.execute("UPDATE tracks SET mtime = 0")       # re-read tags once to fill in genres
         if "added" not in cols:
             c.execute("ALTER TABLE tracks ADD COLUMN added REAL NOT NULL DEFAULT 0")
             # Best guess for existing tracks: when the file last changed.
@@ -323,6 +342,7 @@ class Library:
     def upsert_many(self, rows: list[dict]) -> None:
         for r in rows:
             r.setdefault("added", r.get("mtime") or time.time())
+            r.setdefault("genre", "")
         if rows:
             with self._db() as c:
                 c.executemany(UPSERT, rows)
@@ -409,6 +429,44 @@ class Library:
                 "best_day": (many(f"SELECT date(played_at, 'unixepoch', 'localtime') AS day, SUM(ms_played) AS ms"
                                   f" FROM plays WHERE {Y} GROUP BY day ORDER BY ms DESC LIMIT 1") or [None])[0],
             }
+
+    # -- loudness (library levelling) and genres --
+    def loudness_for(self, path: str) -> float | None:
+        rows = self._rows("SELECT lufs FROM track_loudness WHERE path = ?", (path,))
+        return rows[0]["lufs"] if rows else None
+
+    SCAN_VERSION = 2          # 2 = also measures silent intros/outros
+
+    def set_loudness(self, path: str, lufs: float | None, mtime: float,
+                     intro_ms: int | None = None, outro_ms: int | None = None) -> None:
+        with self._db() as c:
+            c.execute("INSERT OR REPLACE INTO track_loudness (path, lufs, mtime, intro_ms, outro_ms, ver)"
+                      " VALUES (?, ?, ?, ?, ?, ?)", (path, lufs, mtime, intro_ms, outro_ms, self.SCAN_VERSION))
+
+    def trim_for(self, path: str) -> tuple[int, int | None] | None:
+        rows = self._rows("SELECT intro_ms, outro_ms FROM track_loudness WHERE path = ?", (path,))
+        if not rows:
+            return None
+        return int(rows[0]["intro_ms"] or 0), rows[0]["outro_ms"]
+
+    def unscanned_tracks(self) -> list[tuple[str, float]]:
+        """Songs without a loudness measurement, or changed since they were measured."""
+        rows = self._rows("SELECT t.path, t.mtime FROM tracks t LEFT JOIN track_loudness l ON l.path = t.path"
+                          " WHERE l.path IS NULL OR l.mtime != t.mtime OR l.ver < ? ORDER BY t.added DESC",
+                          (self.SCAN_VERSION,))
+        return [(r["path"], r["mtime"]) for r in rows]
+
+    def loudness_progress(self) -> tuple[int, int]:
+        with self._db() as c:
+            total = c.execute("SELECT COUNT(*) FROM tracks").fetchone()[0]
+            done = c.execute("SELECT COUNT(*) FROM tracks t JOIN track_loudness l ON l.path = t.path"
+                             " AND l.mtime = t.mtime AND l.ver >= ?", (self.SCAN_VERSION,)).fetchone()[0]
+        return done, total
+
+    def genres(self) -> list[str]:
+        return [r["genre"] for r in self._rows(
+            "SELECT genre, COUNT(*) AS n FROM tracks WHERE genre != '' GROUP BY genre COLLATE NOCASE"
+            " ORDER BY n DESC, genre COLLATE NOCASE")]
 
     # -- lyrics cache --
     def cached_lyrics(self, path: str) -> dict | None:

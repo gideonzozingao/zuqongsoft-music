@@ -18,7 +18,7 @@ import mutagen
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 
 LRCLIB = "https://lrclib.net/api"
-USER_AGENT = "MusicPlayer/1.0 (Zuqongtech desktop player)"
+USER_AGENT = "ZuqongsoftMusic/1.0 (Zuqongsoft desktop player)"
 RETRY_NOT_FOUND_DAYS = 14
 
 _STAMP = re.compile(r"\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]")
