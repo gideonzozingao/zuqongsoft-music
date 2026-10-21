@@ -2135,7 +2135,26 @@ def resource(*parts: str) -> Path:
     return base.joinpath(*parts)
 
 
+APP_USER_MODEL_ID = "Zuqongtech.ZuqongsoftMusic"     # must match installer.iss
+
+
+def _set_app_identity() -> None:
+    """An installed copy (the installer puts an uninstaller next to the .exe) registers the same
+    AppUserModelID as its Start Menu shortcut, so Windows shows "Zuqongsoft Music" with the right
+    icon in the media overlay, notifications and taskbar. Portable copies keep Windows' default."""
+    if sys.platform != "win32" or not getattr(sys, "frozen", False):
+        return
+    try:
+        folder = os.path.dirname(sys.executable)
+        if any(n.lower().startswith("unins") and n.lower().endswith(".exe") for n in os.listdir(folder)):
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
+    except Exception:
+        pass
+
+
 def run() -> int:
+    _set_app_identity()                          # must happen before any window exists
     app = QApplication(sys.argv)
     app.setOrganizationName("Zuqongtech")
     app.setApplicationName("MusicPlayer")

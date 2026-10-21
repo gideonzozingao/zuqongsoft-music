@@ -1,0 +1,119 @@
+# Changelog
+
+All notable changes to Zuqongsoft Music are recorded here.
+
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [1.0.0] - 2026-10-21
+
+First public release.
+
+### Added
+
+#### Library
+
+- Background, incremental folder scanner (mutagen tags; embedded or folder cover art) backed by SQLite with automatic schema migrations.
+- Songs table with sortable columns; default order artist → album → disc → track number.
+- Album grid with asynchronously loaded cover art; search across title, artist and album.
+- Playlists with M3U import and export; drag a folder onto the window to add it.
+- Genre tags read and stored for automatic EQ rules.
+
+#### Playback
+
+- mpv (libmpv) audio engine with gapless playback, and automatic fallback to Qt Multimedia when libmpv is missing.
+- In-app download of libmpv, with a clear message listing every folder that was searched.
+- Up Next queue: Play next / Add to queue, drag to reorder, remove; queued songs survive shuffle and new albums or playlists.
+- Session restore: the last queue and track reload, paused at the saved position.
+- DJ mode:
+  - crossfades of 1–12 s using two decks and equal-power curves;
+  - silent intros and outros trimmed from scan data;
+  - fades on play, pause and skip, with 1.2 s blends when changing songs;
+  - gapless consecutive album tracks.
+- Song Radio and Autoplay, scored from artist, genre, co-listening history, ratings, play and skip counts and recency, with artist variety.
+- Sleep timer (15–90 minutes or end of song) with fade-out.
+
+#### Lyrics and karaoke
+
+- Synced lyrics view with smooth auto-scroll and click-to-seek; free scrolling pauses auto-follow.
+- Lyrics sources: `.lrc` beside the song, embedded tags (ID3 SYLT/USLT, Vorbis, MP4, WMA), then LRCLIB online with result caching and two-week retry for misses.
+- Lyrics editor:
+  - import `.lrc` or `.txt`;
+  - tap-to-sync (F8) with exact playback time;
+  - ±0.1 s nudge and timestamp removal;
+  - save as `.lrc` with title/artist/album tags, falling back to the app's data folder for read-only music folders.
+- Karaoke: centre-vocal reduction that keeps bass below 150 Hz, and ±6 semitone key change that keeps the tempo.
+
+#### Equalizer and Studio
+
+- 10-band equalizer:
+  - pre-amp, limiter and 13 presets;
+  - user presets, live response curve and 0.1 dB steps;
+  - Frequency (Hz) / Gain (dB) table import and export.
+- Separate EQ profiles per output device; new devices inherit the current curve.
+- Studio EQ, parametric with up to 16 bands:
+  - band types: peak, low and high shelf, low and high cut, notch;
+  - drag-to-edit graph that draws the real RBJ biquad response;
+  - AutoEq / Equalizer APO / REW parametric import and export, or export as a 10-band table;
+  - A/B comparison at matched loudness, band solo (button or Ctrl+drag sweep);
+  - undo/redo and snapshots A–D;
+  - third-octave spectrum analyser (bit-identical output), EBU R128 LUFS meter (M/S/I/true peak), L/R level and stereo correlation meters;
+  - target curves (Harman over-ear and in-ear approximations, warm, bright, custom CSV) and headphone measurement overlay with predicted result.
+- Studio tools:
+  - tone tilt;
+  - stereo width, balance, mono, L/R swap and polarity;
+  - compressor and 3-band multiband compressor;
+  - de-esser, bass enhancer and exciter;
+  - crossfeed;
+  - convolution with WAV impulse responses.
+- Automatic EQ rules per genre, album or song, managed from a song's context menu or the Equalizer tab.
+
+#### Sound
+
+- Volume boost to 200% as a filter before the limiter (no clipping), with a one-time hearing warning on headphones and Bluetooth, and reset to 100% on start.
+- "Make quiet songs louder" dynamic levelling, and ReplayGain.
+- Library loudness levelling: background EBU R128 scan at about 150× real time, with selectable targets (−14 / −16 / −18 / −23 LUFS).
+- Exclusive mode (WASAPI), high-quality resampling, speaker layout (automatic / stereo / surround), and a "What's playing now" source and output format panel with bit-perfect detection.
+- Speakers and surround: stereo → 5.1 upmix, virtual surround for headphones (SOFA head model with one-click MIT KEMAR download), 2.1 Linkwitz–Riley crossover, per-speaker delays.
+- Output device picker with Bluetooth and hands-free detection, hot-plug handling, pause on disconnect and switch on connect.
+- Shortcut to Windows Loudness Equalization settings.
+
+#### Stats
+
+- Play and skip tracking based on listened time, star ratings, and listening history.
+- Six smart playlists, and "Your year in music" with totals, top songs, artists and albums, monthly chart and biggest day.
+
+#### Interface
+
+- Material 3 design generated from seed colours:
+  - 10 presets in light and dark, a custom colour, or follow the system;
+  - Match album art (Material You-style colour extraction);
+  - Appearance window with live previews;
+  - the Windows 11 title bar follows the theme.
+- Responsive wide / medium / compact layouts with animated transitions; columns hide as the table narrows.
+- Now-playing pane with Playing / Lyrics / Up Next tabs.
+- Full-screen Now Playing: animated cover-colour background, synced lyrics, spectrum, auto-hiding controls and karaoke mode.
+- Mini player and tray icon, with an option to keep playing in the tray.
+- App icon (water-droplet note) with a simplified small-size variant.
+
+#### Windows integration
+
+- System media overlay (SMTC) with metadata and cover art.
+- Global hotkeys (Ctrl+Alt+Space / ← / → / ↑ / ↓) and media keys.
+- App identity (AppUserModelID) for installed copies, so the overlay, notifications and taskbar show the app's own name and icon.
+
+#### Build and distribution
+
+- PyInstaller spec with version information.
+- `build.bat` and `build.sh`, with file checks, virtual-environment repair, libmpv download and output verification.
+- Inno Setup installer:
+  - per-user install without administrator rights, or all users;
+  - Start Menu and optional desktop shortcuts;
+  - clean upgrades;
+  - uninstaller that optionally removes user data.
+- README with setup, build, usage, shortcuts, troubleshooting and licence notes.
+
+[Unreleased]: https://github.com/OWNER/REPO/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/OWNER/REPO/releases/tag/v1.0.0

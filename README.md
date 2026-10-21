@@ -159,6 +159,31 @@ The `.exe` isn't code-signed, so other people will see a SmartScreen warning the
 
 ---
 
+## Build the installer (one Setup.exe)
+
+To give people a single file that installs the app like any other Windows program:
+
+1. Install [Inno Setup](https://jrsoftware.org/isdl.php) 6.3 or newer (free), for example:
+   ```powershell
+   winget install JRSoftware.InnoSetup
+   ```
+2. Double-click **`build_installer.bat`**. It builds the app with `build.bat`, then the installer:
+   ```
+   dist\ZuqongsoftMusic-Setup-1.0.0.exe
+   ```
+   Use `build_installer.bat /skipbuild` to package an app you've already built.
+
+That one file is all you need to share. The installer:
+
+- installs for the current user without administrator rights (or for all users, if chosen on the first page)
+- adds a Start Menu shortcut, and optionally a desktop shortcut
+- closes a running copy before installing or upgrading, and cleanly replaces older versions
+- adds an uninstaller to _Settings → Apps_, which asks whether to keep your library and settings
+
+The version number comes from `version_info.txt` (`ProductVersion`). Change it there for each release.
+
+---
+
 ## Linux and macOS
 
 Run from source. The Windows media overlay, global hotkeys, exclusive mode and Bluetooth registry detection are Windows-only; everything else works.
@@ -269,9 +294,12 @@ musicplayer/
 ├─ MusicPlayer.spec       PyInstaller build recipe
 ├─ version_info.txt       Windows file properties for the .exe
 ├─ build.bat / build.sh   One-step build scripts
+├─ installer.iss          Inno Setup recipe for the Setup.exe
+├─ build_installer.bat    Builds the app, then the installer
 ├─ assets/                App icon (.ico, .png, SVG sources)
 ├─ tools/
 │  ├─ get_libmpv.py       Downloads libmpv-2.dll into lib/
+│  ├─ app_version.py      Reads the version for the installer
 │  └─ make_icon.py        Regenerates the icon files
 ├─ lib/                   libmpv-2.dll (downloaded, not committed)
 └─ app/
