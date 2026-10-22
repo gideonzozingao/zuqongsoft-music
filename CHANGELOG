@@ -7,6 +7,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-10-22
+
+### Added
+
+- Nuitka build (`build_nuitka.bat`): compiles the app to native code into the same `dist/ZuqongsoftMusic` folder as the PyInstaller build; copies `libmpv-2.dll`; excludes unused optional libraries (Pillow, NumPy, Tkinter).
+- `build_installer.bat /nuitka`, and build switches (`/nuitka`, `/skipbuild`, `/nopause`) that work in any order.
+- Code signing pipeline (`tools/sign.ps1`):
+  - signs the app, unsigned bundled libraries, the installer and the uninstaller, with RFC 3161 timestamps and fallback servers;
+  - identities: certificate-store thumbprint (USB tokens, cloud HSMs, test certificates), PFX file, or Microsoft Artifact Signing;
+  - configured through `signing.env` or `SIGN_*` environment variables.
+- Signing check before signed installer builds: identity, installed certificate, private key, expiry and `signtool`.
+- `tools/make_test_cert.ps1` for testing signing with a self-signed certificate.
+- SHA-256 checksum file written next to each installer.
+
+### Changed
+
+- Release builds are compiled with Nuitka.
+- Build scripts only call PowerShell when signing is configured, so unsigned builds are unaffected by script execution policies.
+- Shared `BUNDLED` check (`app/__init__.py`) recognises both PyInstaller and Nuitka builds. It's used to find libmpv next to the executable, to relaunch after installing libmpv, and to register the AppUserModelID in installed copies.
+- `.gitignore` excludes `signing.env`, certificate files and checksums.
+- README: Nuitka build, installer switches, code signing, PowerShell tips and troubleshooting.
+
 ## [1.0.0] - 2026-10-21
 
 First public release.
@@ -115,5 +137,6 @@ First public release.
   - uninstaller that optionally removes user data.
 - README with setup, build, usage, shortcuts, troubleshooting and licence notes.
 
-[Unreleased]: https://github.com/OWNER/REPO/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/OWNER/REPO/releases/tag/v1.0.0
+[Unreleased]: https://github.com/gideonzozingao/zuqongsoft-music/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/gideonzozingao/zuqongsoft-music/compare/v1.0.1...v1.0.2
+[1.0.0]: https://github.com/gideonzozingao/zuqongsoft-music/releases/tag/v1.0.0
