@@ -159,6 +159,27 @@ The `.exe` isn't code-signed, so other people will see a SmartScreen warning the
 
 ---
 
+## Build with Nuitka (compiled, optional)
+
+[Nuitka](https://nuitka.net) compiles the Python code to native machine code instead of bundling it. Compared with the PyInstaller build, the app starts faster, the code is much harder to reverse-engineer, and antivirus programs raise fewer false alarms.
+
+Double-click **`build_nuitka.bat`**, or run `.\build_nuitka.bat` in PowerShell. It installs Nuitka into `.venv`, downloads `libmpv-2.dll` if needed, and compiles the app into the **same folder** as `build.bat`:
+
+```
+dist\ZuqongsoftMusic\ZuqongsoftMusic.exe
+```
+
+Because the output is identical in layout, the installer and code signing work with either build.
+
+- **C compiler:** Nuitka needs one. If the build reports a compiler problem, install _Build Tools for Visual Studio_ with the _Desktop development with C++_ workload.
+- **Time:** the first build takes 10–30 minutes; later builds are faster.
+- **Antivirus:** if it slows the build or quarantines files, exclude `build\nuitka` in Windows Security.
+- **Excluded libraries:** optional libraries the app doesn't use (Pillow, NumPy, Tkinter) are left out automatically to keep the build small.
+
+The PyInstaller build (`build.bat`) remains available and unchanged.
+
+---
+
 ## Build the installer (one Setup.exe)
 
 To give people a single file that installs the app like any other Windows program:
@@ -170,8 +191,18 @@ To give people a single file that installs the app like any other Windows progra
 2. Double-click **`build_installer.bat`**. It builds the app with `build.bat`, then the installer:
    ```
    dist\ZuqongsoftMusic-Setup-1.0.0.exe
+   dist\ZuqongsoftMusic-Setup-1.0.0.exe.sha256     (checksum for the release notes)
    ```
-   Use `build_installer.bat /skipbuild` to package an app you've already built.
+
+| Command                            | What it does                                       |
+| ---------------------------------- | -------------------------------------------------- |
+| `.\build_installer.bat`            | Builds with PyInstaller, then the installer        |
+| `.\build_installer.bat /nuitka`    | Builds with Nuitka, then the installer             |
+| `.\build_installer.bat /skipbuild` | Packages the app already in `dist\ZuqongsoftMusic` |
+
+Add `/nopause` to any of these for automated builds. The switches work in any order.
+
+> In PowerShell, scripts in the current folder need the `.\` prefix (`.\build_installer.bat`). In Command Prompt or Explorer, the plain name works.
 
 That one file is all you need to share. The installer:
 
@@ -181,6 +212,73 @@ That one file is all you need to share. The installer:
 - adds an uninstaller to _Settings → Apps_, which asks whether to keep your library and settings
 
 The version number comes from `version_info.txt` (`ProductVersion`). Change it there for each release.
+
+---
+
+## Code signing
+
+Signing puts your verified publisher name on the app and installer instead of "Unknown publisher", proves the files haven't been changed since you built them, and lets Windows SmartScreen build up trust in your releases. The build scripts sign automatically **once signing is configured**; until then they build unsigned files exactly as before.
+
+**What gets signed:** `ZuqongsoftMusic.exe`, any unsigned libraries bundled with it (such as `libmpv-2.dll`), the installer and its uninstaller. Every signature carries a trusted timestamp, so it stays valid after the certificate expires.
+
+### 1. Install signtool
+
+Install the [Windows SDK](https://developer.microsoft.com/windows/downloads/windows-sdk/); only the _Signing Tools for Desktop Apps_ feature is needed. The scripts find `signtool.exe` automatically, or you can set `SIGNTOOL` to its full path.
+
+### 2. Test the pipeline with a free test certificate
+
+```powershell
+Unblock-File .\tools\*.ps1
+powershell -ExecutionPolicy Bypass -File .\tools\make_test_cert.ps1 -Trust
+.\build_installer.bat
+```
+
+`Unblock-File` removes the "downloaded from the internet" mark that makes Windows refuse unsigned scripts. Run scripts through `powershell -ExecutionPolicy Bypass -File …` as shown, not directly with `.\script.ps1`.
+
+This creates a self-signed certificate, stores its thumbprint in `signing.env`, and (with `-Trust`) makes **your PC only** trust it. Check the result under the file's **Properties → Digital Signatures**. Other people's PCs will still warn, so don't publish test-signed builds.
+
+### 3. Sign for real
+
+Get a code-signing certificate from a certificate authority such as Sectigo, DigiCert, GlobalSign, Certum or SSL.com. Publicly trusted certificates must keep their private key in hardware, so you'll receive either a USB token or access to the authority's cloud signing service. Both appear in the Windows certificate store, so you only need the certificate's thumbprint:
+
+```powershell
+Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Format-List Subject, Thumbprint, NotAfter
+```
+
+Put it in `signing.env` in the project folder, replacing the test certificate's line:
+
+```
+SIGN_CERT_SHA1=0123456789ABCDEF0123456789ABCDEF01234567
+```
+
+Other options for `signing.env`:
+
+| Setting                          | Use                                                                               |
+| -------------------------------- | --------------------------------------------------------------------------------- |
+| `SIGN_PFX` + `SIGN_PFX_PASSWORD` | A `.pfx` certificate file (test certificates only)                                |
+| `SIGN_DLIB` + `SIGN_DMDF`        | Microsoft Artifact Signing (formerly Trusted Signing), for eligible organisations |
+| `SIGN_TIMESTAMP_URL`             | A different timestamp server (DigiCert is the default, with automatic fallbacks)  |
+
+The same settings work as environment variables, which suits automated builds.
+
+### How the build decides whether to sign
+
+- **Signing is on only when configured.** That means a `signing.env` file exists, or `SIGN_*` environment variables are set. Without either, everything builds unsigned and PowerShell isn't used at all.
+- **Before a signed installer is compiled,** `build_installer.bat` checks that signing will work:
+  - a signing identity is set;
+  - the certificate is installed on this PC, with its private key (for USB tokens: plugged in), and not expired;
+  - `signtool.exe` is available.
+
+  If anything is missing, it explains what and stops. **To build unsigned again, delete `signing.env`.**
+
+- `build_nuitka.bat` never signs; the installer step signs the installer and uninstaller.
+
+### Good to know
+
+- **Never commit keys or `signing.env`.** Both are in `.gitignore`. Anything compiled into the app can be extracted from it, so never put passwords or private keys in the code.
+- **SmartScreen still warns at first.** With any certificate, standard or EV, the warning fades as more people download and run releases signed with the same certificate. Sign every release with the same certificate to keep that trust.
+- **Plan renewals.** Code-signing certificates now last at most about 15 months. Renew before expiry; existing signed releases stay valid thanks to their timestamps.
+- `build_installer.bat` also writes a `.sha256` checksum file next to the installer, for the release notes.
 
 ---
 
@@ -271,6 +369,15 @@ It needs Windows' built-in `tar` (Windows 10 1803 or later) or [7-Zip](https://w
 **`build.bat` says project files are missing, or the `.exe` is missing after a build**
 Copy the listed files from the latest version of the project. If the build succeeded but the `.exe` is gone, antivirus quarantined it: restore it in _Windows Security → Protection history_ and exclude the `dist` folder. Also check that `APPNAME` in `build.bat` matches `NAME` in the spec.
 
+**PowerShell says a command "is not recognized" or a script "is not digitally signed"**
+Prefix scripts with `.\` (`.\build_installer.bat`). For `.ps1` scripts, run `Unblock-File .\tools\*.ps1` once, then start them with `powershell -ExecutionPolicy Bypass -File …`. If `Get-ExecutionPolicy -List` shows _MachinePolicy_ or _UserPolicy_ set, your organisation enforces the policy, and you may need IT's help.
+
+**The installer build says signing isn't ready, or Inno Setup reports "the file does not have a digital signature"**
+Read the message from the signing check: it names the missing piece (certificate not installed, private key missing, expired, or signtool not found). To build unsigned instead, delete `signing.env`.
+
+**Nuitka build fails**
+The first error usually says why. Most often a C compiler is missing (install _Build Tools for Visual Studio_ with _Desktop development with C++_), antivirus is interfering (exclude `build\nuitka`), or memory ran out (close other programs and try again).
+
 **Sound is quiet on Bluetooth headphones**
 Pick the stereo entry in the output menu, not the one marked _(hands-free, low quality)_. Also set Windows' Communications tab to _Do nothing_ (Win+R → `mmsys.cpl`).
 
@@ -295,11 +402,14 @@ musicplayer/
 ├─ version_info.txt       Windows file properties for the .exe
 ├─ build.bat / build.sh   One-step build scripts
 ├─ installer.iss          Inno Setup recipe for the Setup.exe
+├─ build_nuitka.bat       Optional compiled build with Nuitka
 ├─ build_installer.bat    Builds the app, then the installer
 ├─ assets/                App icon (.ico, .png, SVG sources)
 ├─ tools/
 │  ├─ get_libmpv.py       Downloads libmpv-2.dll into lib/
 │  ├─ app_version.py      Reads the version for the installer
+│  ├─ sign.ps1            Code signing (used by the build scripts)
+│  ├─ make_test_cert.ps1  Creates a test signing certificate
 │  └─ make_icon.py        Regenerates the icon files
 ├─ lib/                   libmpv-2.dll (downloaded, not committed)
 └─ app/
@@ -334,16 +444,18 @@ musicplayer/
 
 ## Third-party components
 
-| Component                                                                         | Used for                                 | Licence                      |
-| --------------------------------------------------------------------------------- | ---------------------------------------- | ---------------------------- |
-| [PySide6 / Qt](https://doc.qt.io/qtforpython-6/)                                  | User interface                           | LGPL-3.0                     |
-| [mpv / libmpv](https://mpv.io) with FFmpeg                                        | Audio engine, filters                    | GPL-2.0+ (LGPL builds exist) |
-| [python-mpv](https://github.com/jaseg/python-mpv)                                 | Python bindings for libmpv               | GPL-2.0+ or LGPL-2.1+        |
-| [mutagen](https://github.com/quodlibet/mutagen)                                   | Tags and cover art                       | GPL-2.0+                     |
-| [PyWinRT](https://github.com/pywinrt/pywinrt)                                     | Windows media overlay                    | MIT                          |
-| [Material Icons](https://fonts.google.com/icons)                                  | Icons                                    | Apache-2.0                   |
-| [LRCLIB](https://lrclib.net)                                                      | Online lyrics                            | Free public API              |
-| MIT KEMAR head measurements (via [libmysofa](https://github.com/hoene/libmysofa)) | Virtual surround (downloaded on request) | See the libmysofa repository |
+| Component                                                                         | Used for                                 | Licence                                        |
+| --------------------------------------------------------------------------------- | ---------------------------------------- | ---------------------------------------------- |
+| [PySide6 / Qt](https://doc.qt.io/qtforpython-6/)                                  | User interface                           | LGPL-3.0                                       |
+| [mpv / libmpv](https://mpv.io) with FFmpeg                                        | Audio engine, filters                    | GPL-2.0+ (LGPL builds exist)                   |
+| [python-mpv](https://github.com/jaseg/python-mpv)                                 | Python bindings for libmpv               | GPL-2.0+ or LGPL-2.1+                          |
+| [mutagen](https://github.com/quodlibet/mutagen)                                   | Tags and cover art                       | GPL-2.0+                                       |
+| [PyWinRT](https://github.com/pywinrt/pywinrt)                                     | Windows media overlay                    | MIT                                            |
+| [Material Icons](https://fonts.google.com/icons)                                  | Icons                                    | Apache-2.0                                     |
+| [LRCLIB](https://lrclib.net)                                                      | Online lyrics                            | Free public API                                |
+| [PyInstaller](https://pyinstaller.org) / [Nuitka](https://nuitka.net)             | Building the app (one or the other)      | GPL-2.0 with bootloader exception / Apache-2.0 |
+| [Inno Setup](https://jrsoftware.org/isinfo.php)                                   | Building the installer                   | Inno Setup licence (free)                      |
+| MIT KEMAR head measurements (via [libmysofa](https://github.com/hoene/libmysofa)) | Virtual surround (downloaded on request) | See the libmysofa repository                   |
 
 Several of these are GPL-licensed, which affects how you may distribute the app. Check each licence before publishing builds.
 

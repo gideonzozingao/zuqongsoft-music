@@ -10,6 +10,11 @@ rem ---------------------------------------------------------------------------
 rem Must match NAME in MusicPlayer.spec.
 set "APPNAME=ZuqongsoftMusic"
 
+set "NOPAUSE="
+for %%A in (%*) do (
+    if /i "%%~A"=="/nopause" set "NOPAUSE=1"
+)
+
 rem pushd (not cd) also works when the project is on a network share or \\wsl$ path.
 pushd "%~dp0" || (echo Could not open the project folder. & goto :fail)
 set "ROOT=%CD%"
@@ -111,5 +116,5 @@ set "RC=1"
 
 :end
 popd
-if /i not "%~1"=="/nopause" pause
+if not defined NOPAUSE pause
 exit /b %RC%

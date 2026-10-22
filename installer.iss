@@ -43,6 +43,11 @@ LZMAUseSeparateProcess=yes
 ; Close a running copy before files are replaced or removed.
 CloseApplications=yes
 RestartApplications=no
+#ifdef UseSignTool
+; build_installer.bat defines UseSignTool and the "zsign" command when signing is configured.
+SignTool=zsign
+SignedUninstaller=yes
+#endif
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

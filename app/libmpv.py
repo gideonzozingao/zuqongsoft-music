@@ -15,6 +15,8 @@ import sys
 import tempfile
 import urllib.request
 from pathlib import Path
+
+from . import BUNDLED
 from typing import Callable
 
 DLL_NAMES = ("libmpv-2.dll", "mpv-2.dll", "mpv-1.dll")
@@ -34,7 +36,7 @@ def user_lib_dir() -> Path | None:
 
 def search_dirs() -> list[Path]:
     dirs: list[Path] = []
-    if getattr(sys, "frozen", False):
+    if BUNDLED:                                   # PyInstaller or Nuitka build
         exe_dir = Path(sys.executable).resolve().parent
         dirs += [exe_dir, exe_dir / "lib"]
     if getattr(sys, "_MEIPASS", None):

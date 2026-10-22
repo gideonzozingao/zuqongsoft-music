@@ -36,6 +36,7 @@ from .responsive import PaneAnimator
 from .stats_page import StatsPage
 from .sound_ui import sound_settings, speaker_settings
 from .loudness_scan import LoudnessScanner
+from . import BUNDLED
 from .radio import Radio
 from .fullscreen import FullScreenView, KaraokeDialog
 from .mini import MiniPlayer, SleepTimer, Tray, sleep_menu
@@ -2003,7 +2004,7 @@ class MainWindow(QMainWindow):
 
     def restart_app(self) -> None:
         """Relaunch (used after installing libmpv). State is saved by closeEvent first."""
-        args = sys.argv[1:] if getattr(sys, "frozen", False) else sys.argv
+        args = sys.argv[1:] if BUNDLED else sys.argv
         if self.close():
             QProcess.startDetached(sys.executable, args)
             QApplication.quit()
@@ -2142,7 +2143,7 @@ def _set_app_identity() -> None:
     """An installed copy (the installer puts an uninstaller next to the .exe) registers the same
     AppUserModelID as its Start Menu shortcut, so Windows shows "Zuqongsoft Music" with the right
     icon in the media overlay, notifications and taskbar. Portable copies keep Windows' default."""
-    if sys.platform != "win32" or not getattr(sys, "frozen", False):
+    if sys.platform != "win32" or not BUNDLED:
         return
     try:
         folder = os.path.dirname(sys.executable)
