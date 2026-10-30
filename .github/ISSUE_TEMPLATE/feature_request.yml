@@ -1,0 +1,75 @@
+name: Feature request
+description: Suggest an idea or improvement for Zuqongsoft Music
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping make Zuqongsoft Music better! Ideas are most useful when they explain the problem first, then the solution.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: What are you trying to do, and what gets in the way today?
+      placeholder: "When I listen to live albums, I have to..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: What would you like to happen?
+      description: Describe how it would work from your point of view.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
+      description: Workarounds you use now, or how other music apps handle this.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of the app?
+      multiple: true
+      options:
+        - Library and scanning
+        - Playback and Up Next
+        - DJ mode and crossfades
+        - Equalizer and Studio
+        - Sound settings
+        - Lyrics and karaoke
+        - Song Radio and Autoplay
+        - Full screen, mini player or tray
+        - Themes and appearance
+        - Stats and playlists
+        - Something new
+
+  - type: dropdown
+    id: importance
+    attributes:
+      label: How important is this to you?
+      options:
+        - Nice to have
+        - It would make the app much better for me
+        - I can't use the app well without it
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Sketches, screenshots or examples from other apps are very welcome.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues and this hasn't been suggested yet.
+          required: true

@@ -1,0 +1,157 @@
+# Builds Zuqongsoft Music on Windows.
+#
+#   push / pull request   -> PyInstaller build + installer, kept as a downloadable artifact
+#   tag v*  (e.g. v1.0.3) -> Nuitka build + installer, then a DRAFT GitHub Release with the
+#                            installer, its .sha256 and that version's RELEASE_NOTES.md section
+#   Run workflow (manual) -> choose PyInstaller or Nuitka
+#
+# Releasing: set the version in version_info.txt, add its "# Zuqongsoft Music X.Y.Z" section to
+# RELEASE_NOTES.md, commit, then push the tag:  git tag -a vX.Y.Z -m "..."  &&  git push origin vX.Y.Z
+# Review the draft release on GitHub and click Publish.
+
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      builder:
+        description: Builder
+        type: choice
+        options: [pyinstaller, nuitka]
+        default: pyinstaller
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  check:
+    name: Check sources
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Compile every Python file
+        run: python -m compileall -q main.py app tools
+
+      - name: Release tag matches version_info.txt
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version="$(python tools/app_version.py)"
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$version" != "$tag" ]; then
+            echo "::error file=version_info.txt::Tag $GITHUB_REF_NAME doesn't match version_info.txt ($version). Fix the version, commit, and move the tag."
+            exit 1
+          fi
+          echo "Version $version matches the tag."
+
+      - name: Release notes exist for this version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: python tools/release_notes.py "${GITHUB_REF_NAME#v}" > /dev/null
+
+  build:
+    name: Build (${{ (startsWith(github.ref, 'refs/tags/v') || inputs.builder == 'nuitka') && 'Nuitka' || 'PyInstaller' }})
+    needs: check
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      BUILDER: ${{ (startsWith(github.ref, 'refs/tags/v') || inputs.builder == 'nuitka') && 'nuitka' || 'pyinstaller' }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}        # get_libmpv.py: avoids GitHub API rate limits
+      NUITKA_CACHE_DIR: ${{ github.workspace }}\.nuitka-cache
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          architecture: x64
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      # The build scripts reuse a working .venv; creating it here pins it to this Python.
+      - name: Create the virtual environment
+        shell: cmd
+        run: python -m venv .venv
+
+      - name: Cache the audio engine (libmpv)
+        uses: actions/cache@v5
+        with:
+          path: lib/libmpv-2.dll
+          key: libmpv-${{ hashFiles('tools/get_libmpv.py') }}
+
+      - name: Cache Nuitka
+        if: env.BUILDER == 'nuitka'
+        uses: actions/cache@v5
+        with:
+          path: .nuitka-cache
+          key: nuitka-${{ hashFiles('requirements.txt', 'main.py', 'app/**/*.py') }}
+          restore-keys: nuitka-
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          if (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe") { "Inno Setup already installed"; exit 0 }
+          choco install innosetup --no-progress -y
+
+      # No signing.env exists here (it's git-ignored), so CI builds are unsigned.
+      - name: Build with PyInstaller, then the installer
+        if: env.BUILDER == 'pyinstaller'
+        shell: cmd
+        run: call build_installer.bat /nopause
+
+      - name: Build with Nuitka, then the installer
+        if: env.BUILDER == 'nuitka'
+        shell: cmd
+        run: call build_installer.bat /nuitka /nopause
+
+      - name: Upload the installer
+        uses: actions/upload-artifact@v7      # keep in step with download-artifact@v8 below
+        with:
+          name: installer
+          path: |
+            dist/ZuqongsoftMusic-Setup-*.exe
+            dist/ZuqongsoftMusic-Setup-*.exe.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Draft GitHub release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8    # pairs with upload-artifact@v7 above
+        with:
+          name: installer
+          path: dist
+
+      - name: Release notes for this version (checksum filled in)
+        run: |
+          python3 tools/release_notes.py "${GITHUB_REF_NAME#v}" --checksum dist/*.sha256 > release-notes.md
+          cat release-notes.md
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          name: Zuqongsoft Music ${{ github.ref_name }}
+          body_path: release-notes.md
+          files: |
+            dist/ZuqongsoftMusic-Setup-*.exe
+            dist/ZuqongsoftMusic-Setup-*.exe.sha256
+          draft: true
+          fail_on_unmatched_files: true

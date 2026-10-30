@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Troubleshooting guide
+    url: https://github.com/gideonzozingao/zuqongsoft-music#troubleshooting
+    about: Fixes for common problems (no sound, missing audio engine, Bluetooth, lyrics, building).
+  - name: Report a security problem privately
+    url: https://github.com/gideonzozingao/zuqongsoft-music/security/advisories/new
+    about: Please don't report security issues in public. Use this private form instead.

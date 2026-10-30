@@ -1,0 +1,126 @@
+name: Bug report
+description: Something in Zuqongsoft Music doesn't work as it should
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this! The more detail you give, the faster it can be fixed.
+        Before you start, check the [Troubleshooting](https://github.com/gideonzozingao/zuqongsoft-music#troubleshooting) section of the README.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the problem. Include any error message, word for word.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What did you do just before it happened?
+      placeholder: |
+        1. Open the Equalizer (Ctrl+E)
+        2. Switch to the Studio tab
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: Shown in Windows Settings → Apps → Installed apps → Zuqongsoft Music, and in the installer's file name.
+      placeholder: "1.0.2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it?
+      options:
+        - Installer (ZuqongsoftMusic-Setup.exe)
+        - Built it myself (build.bat or build_nuitka.bat)
+        - Running from source (python main.py)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: windows
+    attributes:
+      label: Windows version
+      options:
+        - Windows 11
+        - Windows 10
+        - Other (please say in the description)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of the app?
+      multiple: true
+      options:
+        - Library and scanning
+        - Playback and Up Next
+        - DJ mode and crossfades
+        - Equalizer
+        - Studio EQ and tools
+        - Sound settings (boost, levelling, surround)
+        - Lyrics and lyrics editor
+        - Karaoke
+        - Song Radio and Autoplay
+        - Full screen, mini player or tray
+        - Themes and appearance
+        - Stats and playlists
+        - Installer or uninstaller
+        - Something else
+
+  - type: dropdown
+    id: output
+    attributes:
+      label: Audio output in use
+      options:
+        - Built-in speakers
+        - Wired headphones
+        - Bluetooth headphones or speaker
+        - USB DAC or audio interface
+        - HDMI / TV
+        - Not related to sound
+
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Does the Equalizer window (Ctrl+E) show the full audio engine?
+      description: If it offers to "Download audio engine", choose "No".
+      options:
+        - "Yes"
+        - "No"
+        - Don't know
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots or other details
+      description: Drag screenshots in here. If it happens with particular songs, say which file type (MP3, FLAC, …).
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues and this hasn't been reported yet.
+          required: true
+        - label: I'm using the latest version, or I checked the problem still happens in it.
