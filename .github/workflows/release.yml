@@ -22,7 +22,7 @@ on:
         description: Builder
         type: choice
         options: [pyinstaller, nuitka]
-        default: pyinstaller
+        default: nuitka
 
 permissions:
   contents: read
