@@ -1,9 +1,10 @@
-# Builds Zuqongsoft Music on Windows.
+# Builds Zuqongsoft Music on Windows - ONLY for version tags (and manual runs).
+# Ordinary pushes, commits and pull requests don't start a build.
 #
-#   push / pull request   -> PyInstaller build + installer, kept as a downloadable artifact
 #   tag v*  (e.g. v1.0.3) -> Nuitka build + installer, then a DRAFT GitHub Release with the
 #                            installer, its .sha256 and that version's RELEASE_NOTES.md section
-#   Run workflow (manual) -> choose PyInstaller or Nuitka
+#   Run workflow (manual) -> build only (choose Nuitka or PyInstaller); the installer is kept
+#                            as a downloadable artifact, and no release is created
 #
 # Releasing: set the version in version_info.txt, add its "# Zuqongsoft Music X.Y.Z" section to
 # RELEASE_NOTES.md, commit, then push the tag:  git tag -a vX.Y.Z -m "..."  &&  git push origin vX.Y.Z
@@ -13,10 +14,8 @@ name: Build
 
 on:
   push:
-    branches: [main]
-    tags: ["v*"]
-  pull_request:
-  workflow_dispatch:
+    tags: ["v*"]          # only version tags; pushes of commits to any branch are ignored
+  workflow_dispatch:      # manual runs from the Actions tab (remove these lines to disallow)
     inputs:
       builder:
         description: Builder

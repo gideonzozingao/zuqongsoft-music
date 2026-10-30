@@ -215,6 +215,34 @@ The version number comes from `version_info.txt` (`ProductVersion`). Change it t
 
 ---
 
+## Automated builds (GitHub Actions)
+
+`.github/workflows/release.yml` builds the app on GitHub's Windows machines, **only for version tags**. Ordinary pushes, commits and pull requests don't start a build.
+
+| Trigger                            | What happens                                                                                                                                            |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pushing a tag like `v1.0.3`        | Source check, Nuitka build and installer, then a **draft** release with the installer, its checksum and that version's release notes                    |
+| **Actions → Build → Run workflow** | Build on demand (Nuitka by default, or PyInstaller); the installer is downloadable under the run's **Artifacts** for 30 days, and no release is created |
+
+### Releasing a new version
+
+1. Set the version in `version_info.txt` (all four version fields).
+2. Add a `# Zuqongsoft Music X.Y.Z` section at the top of `RELEASE_NOTES.md`, and an entry in `CHANGELOG.md`.
+3. Commit, then tag and push:
+   ```bash
+   git tag -a v1.0.3 -m "Zuqongsoft Music 1.0.3"
+   git push origin main v1.0.3
+   ```
+4. When the workflow finishes, open **Releases**, review the draft (the checksum is already filled in) and click **Publish**.
+
+The workflow stops early if the tag doesn't match `version_info.txt` or if `RELEASE_NOTES.md` has no section for the version. Builds made on GitHub are unsigned.
+
+### Issue templates
+
+New issues use forms for bug reports and feature requests (`.github/ISSUE_TEMPLATE/`). Blank issues are turned off, and security problems go to GitHub's private reporting form. Turn that form on under **Settings → Code security → Private vulnerability reporting**.
+
+---
+
 ## Code signing
 
 Signing puts your verified publisher name on the app and installer instead of "Unknown publisher", proves the files haven't been changed since you built them, and lets Windows SmartScreen build up trust in your releases. The build scripts sign automatically **once signing is configured**; until then they build unsigned files exactly as before.
@@ -403,11 +431,14 @@ musicplayer/
 ├─ build.bat / build.sh   One-step build scripts
 ├─ installer.iss          Inno Setup recipe for the Setup.exe
 ├─ build_nuitka.bat       Optional compiled build with Nuitka
+├─ .github/               Build workflow and issue templates
+├─ .gitattributes         Line endings (Windows scripts always CRLF)
 ├─ build_installer.bat    Builds the app, then the installer
 ├─ assets/                App icon (.ico, .png, SVG sources)
 ├─ tools/
 │  ├─ get_libmpv.py       Downloads libmpv-2.dll into lib/
 │  ├─ app_version.py      Reads the version for the installer
+│  ├─ release_notes.py    Extracts one version's release notes (used by the workflow)
 │  ├─ sign.ps1            Code signing (used by the build scripts)
 │  ├─ make_test_cert.ps1  Creates a test signing certificate
 │  └─ make_icon.py        Regenerates the icon files
