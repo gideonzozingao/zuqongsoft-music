@@ -1,3 +1,127 @@
+# Zuqongsoft Music 1.0.3
+
+**Released 30 October 2026** · Windows 10 and 11 (64-bit)
+
+A maintenance release. The app itself is unchanged from 1.0.2; this release is about how it's built and how you can reach us.
+
+**Download:** `ZuqongsoftMusic-Setup-1.0.3.exe`, below under _Assets_.
+
+---
+
+## What's new
+
+**Built automatically from the published source.** This installer was built by GitHub Actions directly from the tagged source code in this repository, rather than on a developer's PC. Every release from now on is built the same way, so what you download always matches the code you can read here.
+
+**Correct version details.** The app and installer now report version 1.0.3 everywhere: in the installer's file name, in Windows Settings → Apps, and in the file's properties.
+
+**Easier bug reports and ideas.** Reporting a problem or suggesting a feature now opens a short form on GitHub, asking for the details that help most (app version, Windows version, which part of the app, audio output). Choose **Issues → New issue** in this repository.
+
+---
+
+## Upgrading
+
+Run `ZuqongsoftMusic-Setup-1.0.3.exe`. It closes Zuqongsoft Music if it's open, replaces the previous version, and keeps your library, playlists, stats and settings. There's no need to uninstall first.
+
+## Installing for the first time
+
+1. Download **`ZuqongsoftMusic-Setup-1.0.3.exe`** and run it.
+2. If Windows shows _"Windows protected your PC"_, click **More info → Run anyway**. The installer isn't signed with a public certificate yet.
+3. Choose whether to install for just you (no administrator rights needed) or for everyone on the PC.
+4. Open **Zuqongsoft Music** from the Start Menu and add your music with **File → Add Music Folder**.
+
+## Known issues
+
+- **SmartScreen warning:** the installer isn't signed with a publicly trusted certificate yet.
+- All other known issues from earlier versions still apply (no crossfades in exclusive mode; Bluetooth hands-free mode sounds quiet; vocal reduction varies by song).
+
+## Verifying the download
+
+```powershell
+certutil -hashfile ZuqongsoftMusic-Setup-1.0.3.exe SHA256
+```
+
+The result should match the `.sha256` file published with this release:
+
+```
+SHA-256: <paste the checksum here when publishing>
+```
+
+---
+
+## For developers
+
+- **Release workflow** (`.github/workflows/release.yml`): pushing a `v*` tag checks the sources, verifies the tag matches `version_info.txt` and that release notes exist, builds with Nuitka, and creates a draft release with the installer, its checksum and these notes. Ordinary pushes and pull requests don't trigger builds; manual runs are available from the Actions tab.
+- **Issue forms** for bug reports and feature requests, with blank issues turned off and a private security-report link.
+- **`.gitattributes`**: Windows scripts (`.bat`, `.ps1`, `.iss`) are always checked out with CRLF line endings.
+- **`tools/release_notes.py`**: extracts one version's notes and fills in the checksum.
+
+---
+
+# Zuqongsoft Music 1.0.2
+
+**Released 22 October 2026** · Windows 10 and 11 (64-bit)
+
+A maintenance release that improves how Zuqongsoft Music is built and delivered. Your library, playlists, stats and settings carry over untouched, and everything works as before.
+
+**Download:** `ZuqongsoftMusic-Setup-1.0.2.exe`, below under _Assets_.
+
+---
+
+## What's new
+
+**Compiled for speed.** The app is now compiled to native machine code with Nuitka, instead of being bundled as Python. It starts faster and is less likely to be flagged by antivirus programs, which sometimes mistook the previous build for a threat.
+
+**A checksum for every download.** Each installer now comes with a SHA-256 checksum, so you can confirm your download is complete and unchanged (see _Verifying the download_).
+
+**Correct behaviour in the compiled app.** Three things the app does differently when installed now work the same in the new compiled build:
+
+- it finds its audio engine, so the equalizer, Studio and DJ mode are available;
+- _Restart now_ relaunches correctly after downloading the audio engine;
+- Windows shows the app's own name and icon in the media overlay, notifications and taskbar.
+
+---
+
+## Upgrading from an earlier version
+
+Run `ZuqongsoftMusic-Setup-1.0.2.exe`. It closes Zuqongsoft Music if it's open, replaces the previous version, and keeps all your data. There's no need to uninstall first.
+
+## Installing for the first time
+
+1. Download **`ZuqongsoftMusic-Setup-1.0.2.exe`** and run it.
+2. If Windows shows _"Windows protected your PC"_, click **More info → Run anyway**. The installer isn't signed with a public certificate yet.
+3. Choose whether to install for just you (no administrator rights needed) or for everyone on the PC.
+4. Open **Zuqongsoft Music** from the Start Menu and add your music with **File → Add Music Folder**.
+
+## Known issues
+
+- **SmartScreen warning:** the installer isn't signed with a publicly trusted certificate yet. Signing support is now built in and will be switched on once a certificate is in place.
+- All other known issues from earlier versions still apply (no crossfades in exclusive mode; Bluetooth hands-free mode sounds quiet; vocal reduction varies by song).
+
+## Verifying the download
+
+```powershell
+certutil -hashfile ZuqongsoftMusic-Setup-1.0.2.exe SHA256
+```
+
+The result should match the `.sha256` file published with this release:
+
+```
+SHA-256: <paste the checksum here when publishing>
+```
+
+---
+
+## For developers
+
+- **Nuitka build:** `build_nuitka.bat` compiles the app into the same `dist\ZuqongsoftMusic` folder as the PyInstaller build, so both feed the same installer. `build_installer.bat /nuitka` builds with Nuitka, then the installer. The PyInstaller build (`build.bat`) remains available.
+- **Code signing pipeline:** `tools\sign.ps1` signs the app, bundled libraries, the installer and the uninstaller with timestamps. It's configured through `signing.env`, checks that the certificate is ready before a signed build, and works with USB tokens, cloud signing services or a test certificate (`tools\make_test_cert.ps1`). Unsigned builds never call PowerShell.
+- **Installer build switches:** `/nuitka`, `/skipbuild` and `/nopause`, in any order. A `.sha256` checksum is written next to the installer.
+- **Built-app detection:** the app recognises both PyInstaller and Nuitka builds through a shared `BUNDLED` check in `app/__init__.py`.
+
+See the README for setup details and `CHANGELOG.md` for the full list of changes.
+
+---
+
 # Zuqongsoft Music 1.0.0
 
 **Released 21 October 2026** · Windows 10 and 11 (64-bit)

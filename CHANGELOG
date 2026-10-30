@@ -7,6 +7,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-10-30
+
+### Added
+
+- GitHub Actions release workflow (`.github/workflows/release.yml`), triggered by `v*` tags and manual runs only:
+  - checks that every Python file compiles, that the tag matches `version_info.txt`, and that release notes exist for the version;
+  - builds with Nuitka and Inno Setup on Windows;
+  - creates a draft GitHub Release with the installer, its SHA-256 checksum and the version's release notes.
+- `tools/release_notes.py`: extracts one version's section of `RELEASE_NOTES.md` and fills in the checksum.
+- Issue forms for bug reports and feature requests; blank issues turned off; links to troubleshooting and private security reporting.
+- `.gitattributes`: CRLF line endings for Windows scripts on every checkout.
+
+### Changed
+
+- README: automated builds, release steps and issue templates.
+
+### Fixed
+
+- Version details: the app and installer report the correct version.
+
 ## [1.0.2] - 2026-10-22
 
 ### Added
@@ -137,6 +157,7 @@ First public release.
   - uninstaller that optionally removes user data.
 - README with setup, build, usage, shortcuts, troubleshooting and licence notes.
 
-[Unreleased]: https://github.com/gideonzozingao/zuqongsoft-music/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/gideonzozingao/zuqongsoft-music/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/gideonzozingao/zuqongsoft-music/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/gideonzozingao/zuqongsoft-music/compare/v1.0.1...v1.0.2
 [1.0.0]: https://github.com/gideonzozingao/zuqongsoft-music/releases/tag/v1.0.0
