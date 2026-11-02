@@ -11,7 +11,7 @@ rem          add /nopause to any of these to skip the final pause
 rem  Needs Inno Setup 6.3+:  winget install JRSoftware.InnoSetup
 rem ---------------------------------------------------------------------------
 
-set "APPNAME=ZuqongsoftMusic"
+set "APPNAME=GaramutMusic"
 set "SKIPBUILD="
 set "NOPAUSE="
 set "BUILDER=build.bat"

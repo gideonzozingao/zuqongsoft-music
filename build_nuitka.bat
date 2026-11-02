@@ -2,11 +2,11 @@
 setlocal EnableExtensions
 
 rem ---------------------------------------------------------------------------
-rem  Builds Zuqongsoft Music with Nuitka: your Python code is compiled to native
+rem  Builds Garamut Music with Nuitka: your Python code is compiled to native
 rem  machine code (faster start-up, much harder to reverse-engineer, fewer
 rem  antivirus false alarms than a PyInstaller build).
 rem
-rem  Output: dist\ZuqongsoftMusic\ZuqongsoftMusic.exe - the SAME folder build.bat
+rem  Output: dist\GaramutMusic\GaramutMusic.exe - the SAME folder build.bat
 rem  makes, so the installer packages it unchanged:
 rem      build_installer.bat /nuitka        build with Nuitka, then the installer
 rem      build_installer.bat /skipbuild     package an existing build
@@ -16,6 +16,7 @@ rem  The first build takes 10-30 minutes; later builds are faster (cached).
 rem ---------------------------------------------------------------------------
 
 set "APPNAME=GaramutMusic"
+set "DISPLAYNAME=Garamut Music"
 pushd "%~dp0" || (echo Could not open the project folder. & goto :fail)
 set "ROOT=%CD%"
 set "VENV=%ROOT%\.venv"
@@ -27,7 +28,7 @@ set "EXE=%DIST%\%APPNAME%\%APPNAME%.exe"
 
 rem ---- 1. Project files ------------------------------------------------------------
 set "MISSING="
-for %%F in (main.py requirements.txt version_info.txt app\__init__.py app\ui.py app\engine.py app\libmpv.py app\equalizer.py app\equalizer_ui.py app\audio_devices.py app\theme.py app\theme_picker.py app\lyrics.py app\lyrics_editor.py app\panels.py app\stats_page.py app\play_tracker.py app\responsive.py app\sound_ui.py app\studio.py app\studio_ui.py app\tools.py app\loudness_scan.py app\radio.py app\fullscreen.py app\mini.py app\models.py app\library.py app\system_media.py tools\get_libmpv.py tools\app_version.py assets\icon.ico assets\icon.png) do (
+for %%F in (main.py requirements.txt version_info.txt app\__init__.py app\ui\__init__.py app\ui\window.py app\ui\builders.py app\ui\library_views.py app\ui\playlists.py app\ui\playback.py app\ui\extras.py app\ui\sound.py app\ui\eq_control.py app\ui\devices.py app\ui\layout.py app\ui\theming.py app\ui\session.py app\ui\widgets.py app\ui\constants.py app\ui\launch.py app\engine.py app\libmpv.py app\equalizer.py app\equalizer_ui.py app\audio_devices.py app\theme.py app\theme_picker.py app\lyrics.py app\lyrics_editor.py app\panels.py app\stats_page.py app\play_tracker.py app\responsive.py app\sound_ui.py app\studio.py app\studio_ui.py app\tools.py app\loudness_scan.py app\radio.py app\fullscreen.py app\mini.py app\models.py app\library.py app\system_media.py tools\get_libmpv.py tools\app_version.py assets\icon.ico assets\icon.png) do (
     if not exist "%ROOT%\%%F" call set "MISSING=%%MISSING%% %%F"
 )
 if defined MISSING goto :missing_files
@@ -53,12 +54,12 @@ echo Downloading the audio engine (libmpv)...
 rem ---- 5. Version (from version_info.txt) --------------------------------------------------
 set "VERSION="
 for /f "delims=" %%V in ('call "%PY%" "%ROOT%\tools\app_version.py"') do set "VERSION=%%V"
-if not defined VERSION set "VERSION=1.0.0"
+if not defined VERSION goto :no_version
 
 rem ---- 6. Compile ----------------------------------------------------------------------
 taskkill /im %APPNAME%.exe /f >nul 2>nul
 echo.
-echo Compiling version %VERSION% with Nuitka. This takes a while the first time...
+echo Compiling %DISPLAYNAME% %VERSION% with Nuitka. This takes a while the first time...
 "%PY%" -m nuitka --mode=standalone ^
   --enable-plugins=pyside6 --include-qt-plugins=sensible,multimedia ^
   --include-package=winrt ^
@@ -66,7 +67,7 @@ echo Compiling version %VERSION% with Nuitka. This takes a while the first time.
   --include-data-dir="%ROOT%\assets=assets" ^
   --windows-console-mode=disable ^
   --windows-icon-from-ico="%ROOT%\assets\icon.ico" ^
-  --company-name="Zuqongtech" --product-name="Zuqongsoft Music" --file-description="Zuqongsoft Music" ^
+  --company-name="Zuqongtech" --product-name="%DISPLAYNAME%" --file-description="%DISPLAYNAME%" ^
   --file-version=%VERSION% --product-version=%VERSION% --copyright="Copyright (c) 2026 Zuqongtech" ^
   --output-dir="%WORK%" --output-folder-name=%APPNAME% --output-filename=%APPNAME%.exe ^
   --assume-yes-for-downloads ^
@@ -102,6 +103,11 @@ echo ERROR: Could not create a virtual environment.
 echo Install 64-bit Python 3.10 - 3.13 from python.org and tick "Add python.exe to PATH".
 goto :fail
 
+:no_version
+echo.
+echo ERROR: Could not read the version from version_info.txt (see the message above).
+goto :fail
+
 :compile_failed
 echo.
 echo ERROR: Nuitka could not build the app. Scroll up for the first error. Common causes:
@@ -113,7 +119,7 @@ goto :fail
 
 :locked
 echo.
-echo ERROR: "%DIST%\%APPNAME%" is in use. Close Zuqongsoft Music and any Explorer window
+echo ERROR: "%DIST%\%APPNAME%" is in use. Close %DISPLAYNAME% and any Explorer window
 echo showing that folder, then run this script again.
 goto :fail
 
