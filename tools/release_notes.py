@@ -1,9 +1,11 @@
 """Print one version's section of RELEASE_NOTES.md, for the GitHub release workflow.
 
-Usage:  python tools/release_notes.py 1.0.2 [--checksum dist/ZuqongsoftMusic-Setup-1.0.2.exe.sha256]
+Usage:  python tools/release_notes.py 1.0.4 [--checksum dist/GaramutMusic-Setup-1.0.4.exe.sha256]
 
-With --checksum, the "<paste the checksum here when publishing>" placeholder is replaced
-by the real SHA-256. Exits with an error if the version has no section.
+A section starts with a top-level heading naming the app and the version, e.g. "# Garamut Music 1.0.4"
+(a "v" before the number is fine). With --checksum, the "<paste the checksum here when publishing>"
+placeholder is replaced by the real SHA-256. If the version has no section, it exits with an error
+that lists the headings it did find.
 """
 import argparse
 import re
@@ -20,20 +22,30 @@ ap = argparse.ArgumentParser()
 ap.add_argument("version")
 ap.add_argument("--checksum", help=".sha256 file written by build_installer.bat")
 args = ap.parse_args()
+version = args.version.lstrip("vV")
 
 notes = Path(__file__).resolve().parent.parent / "RELEASE_NOTES.md"
-text = notes.read_text(encoding="utf-8")
-sections = re.split(r"(?m)^(?=# .+? \d+\.\d+)", text)              # any app name, e.g. "# Garamut Music 1.0.4"
-heading = re.compile(rf"# .+? {re.escape(args.version)}[ \t]*\r?\n")
-section = next((s for s in sections if heading.match(s)), None)
+# utf-8-sig drops the invisible byte-order mark that Notepad and some PowerShell commands add.
+text = notes.read_text(encoding="utf-8-sig").replace("\r\n", "\n")
+
+HEADING = re.compile(r"(?m)^#[ \t]+(.+?)[ \t]+v?(\d+(?:\.\d+)+)[ \t]*$")     # "# <app name> 1.0.4"
+starts = [(m.start(), m.group(2), m.group(0).strip()) for m in HEADING.finditer(text)]
+section = None
+for i, (pos, ver, _line) in enumerate(starts):
+    if ver == version:
+        end = starts[i + 1][0] if i + 1 < len(starts) else len(text)
+        section = text[pos:end]
+        break
+
 if section is None:
-    print(f"::error file=RELEASE_NOTES.md::No section '# <app name> {args.version}' in RELEASE_NOTES.md",
-          file=sys.stderr)
+    found = [line for _pos, _ver, line in starts][:5] or ["(no '# <app name> <version>' headings at all)"]
+    print(f"::error file=RELEASE_NOTES.md::No section '# <app name> {version}' in RELEASE_NOTES.md. "
+          f"Headings found: {' | '.join(found)}", file=sys.stderr)
     sys.exit(1)
 
-body = section.split("\n", 1)[1].strip()          # the release title already shows the heading
+body = section.split("\n", 1)[1].strip()            # the release title already shows the heading
 body = re.sub(r"\n-{3,}\s*$", "", body).strip()      # trailing separator before the next version
 if args.checksum:
-    digest = Path(args.checksum).read_text(encoding="utf-8").split()[0]
+    digest = Path(args.checksum).read_text(encoding="utf-8-sig").split()[0]
     body = body.replace(PLACEHOLDER, digest)
 print(body)
