@@ -1,4 +1,4 @@
-# Builds Zuqongsoft Music on Windows - ONLY for version tags (and manual runs).
+# Builds Garamut Music on Windows - ONLY for version tags (and manual runs).
 # Ordinary pushes, commits and pull requests don't start a build.
 #
 #   tag v*  (e.g. v1.0.3) -> Nuitka build + installer, then a DRAFT GitHub Release with the
@@ -6,7 +6,7 @@
 #   Run workflow (manual) -> build only (choose Nuitka or PyInstaller); the installer is kept
 #                            as a downloadable artifact, and no release is created
 #
-# Releasing: set the version in version_info.txt, add its "# Zuqongsoft Music X.Y.Z" section to
+# Releasing: set the version in version_info.txt, add its "# Garamut Music X.Y.Z" section to
 # RELEASE_NOTES.md, commit, then push the tag:  git tag -a vX.Y.Z -m "..."  &&  git push origin vX.Y.Z
 # Review the draft release on GitHub and click Publish.
 
@@ -120,8 +120,8 @@ jobs:
         with:
           name: installer
           path: |
-            dist/ZuqongsoftMusic-Setup-*.exe
-            dist/ZuqongsoftMusic-Setup-*.exe.sha256
+            dist/*-Setup-*.exe
+            dist/*-Setup-*.exe.sha256
           if-no-files-found: error
           retention-days: 30
 
@@ -147,10 +147,10 @@ jobs:
 
       - uses: softprops/action-gh-release@v3
         with:
-          name: Zuqongsoft Music ${{ github.ref_name }}
+          name: Garamut Music ${{ github.ref_name }}
           body_path: release-notes.md
           files: |
-            dist/ZuqongsoftMusic-Setup-*.exe
-            dist/ZuqongsoftMusic-Setup-*.exe.sha256
+            dist/*-Setup-*.exe
+            dist/*-Setup-*.exe.sha256
           draft: true
           fail_on_unmatched_files: true
