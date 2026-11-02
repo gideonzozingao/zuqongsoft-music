@@ -8,7 +8,7 @@ rem          build.bat /nopause   (for terminals / CI)
 rem ---------------------------------------------------------------------------
 
 rem Must match NAME in MusicPlayer.spec.
-set "APPNAME=ZuqongsoftMusic"
+set "APPNAME=GaramutMusic"
 
 set "NOPAUSE="
 for %%A in (%*) do (
@@ -30,7 +30,7 @@ if not exist "%SPEC%" goto :no_spec
 
 rem Every file the build needs. Missing ones are listed instead of building a broken app.
 set "MISSING="
-for %%F in (main.py requirements.txt version_info.txt app\ui.py app\engine.py app\libmpv.py app\equalizer.py app\equalizer_ui.py app\audio_devices.py app\theme_picker.py app\lyrics.py app\lyrics_editor.py app\panels.py app\stats_page.py app\play_tracker.py app\responsive.py app\sound_ui.py app\studio.py app\studio_ui.py app\tools.py app\loudness_scan.py app\radio.py app\fullscreen.py app\mini.py tools\get_libmpv.py assets\icon.ico assets\icon.png) do (
+for %%F in (main.py requirements.txt version_info.txt app\ui.py app\engine.py app\libmpv.py app\equalizer.py app\equalizer_ui.py app\audio_devices.py app\theme_picker.py app\lyrics.py app\lyrics_editor.py app\panels.py app\stats_page.py app\play_tracker.py app\responsive.py app\sound_ui.py app\studio.py app\studio_ui.py app\tools.py app\loudness_scan.py app\radio.py app\fullscreen.py app\mini.py tools\get_libmpv.py assets\\icons\\garamut-icon-256.png) do (
     if not exist "%ROOT%\%%F" call set "MISSING=%%MISSING%% %%F"
 )
 if defined MISSING goto :missing_files

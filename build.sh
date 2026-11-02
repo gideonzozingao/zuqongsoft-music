@@ -3,7 +3,7 @@
 # Usage: ./build.sh
 set -euo pipefail
 
-APPNAME="ZuqongsoftMusic"          # must match NAME in MusicPlayer.spec
+APPNAME="GaramutMusic"          # must match NAME in MusicPlayer.spec
 
 cd "$(dirname "$0")"
 ROOT="$(pwd)"

@@ -15,7 +15,7 @@ rem  Usage:  build_nuitka.bat [/nopause]
 rem  The first build takes 10-30 minutes; later builds are faster (cached).
 rem ---------------------------------------------------------------------------
 
-set "APPNAME=ZuqongsoftMusic"
+set "APPNAME=GaramutMusic"
 pushd "%~dp0" || (echo Could not open the project folder. & goto :fail)
 set "ROOT=%CD%"
 set "VENV=%ROOT%\.venv"

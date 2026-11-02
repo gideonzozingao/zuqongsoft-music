@@ -2136,12 +2136,12 @@ def resource(*parts: str) -> Path:
     return base.joinpath(*parts)
 
 
-APP_USER_MODEL_ID = "Zuqongtech.ZuqongsoftMusic"     # must match installer.iss
+APP_USER_MODEL_ID = "Zuqongtech.GaramutMusic"     # must match installer.iss
 
 
 def _set_app_identity() -> None:
     """An installed copy (the installer puts an uninstaller next to the .exe) registers the same
-    AppUserModelID as its Start Menu shortcut, so Windows shows "Zuqongsoft Music" with the right
+    AppUserModelID as its Start Menu shortcut, so Windows shows "Garamut Music" with the right
     icon in the media overlay, notifications and taskbar. Portable copies keep Windows' default."""
     if sys.platform != "win32" or not BUNDLED:
         return
@@ -2159,7 +2159,7 @@ def run() -> int:
     app = QApplication(sys.argv)
     app.setOrganizationName("Zuqongtech")
     app.setApplicationName("MusicPlayer")
-    app.setApplicationDisplayName("Zuqongsoft Music")
+    app.setApplicationDisplayName("Garamut Music")
     s = QSettings()
     art = str(s.value("theme/art_seed", "") or "")
     if "|" in art:

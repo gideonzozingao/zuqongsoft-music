@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/icon.png" width="128" alt="Zuqongsoft Music icon">
+  <img src="assets/icons/garamut-icon-1024.png" width="128" alt="Garamut Music icon"><img src="assets/icon-gold-1024.png" width="128" alt="Garamut Music icon">
 </p>
 
-<h1 align="center">Zuqongsoft Music</h1>
+<h1 align="center">Garamut Music</h1>
 
 <p align="center">
   A Material 3 desktop music player for your own library, with a studio-grade audio engine,<br>

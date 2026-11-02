@@ -1,4 +1,4 @@
-"""Zuqongsoft Music package."""
+"""Garamut Music package."""
 import sys
 
 # True when running as a built app (PyInstaller sets sys.frozen; Nuitka compiles every module

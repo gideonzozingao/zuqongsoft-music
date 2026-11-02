@@ -17,9 +17,9 @@ VSVersionInfo(
         StringStruct('CompanyName', 'Zuqongtech'),
         StringStruct('FileDescription', 'Zuqongsoft Music'),
         StringStruct('FileVersion', '1.0.3.0'),
-        StringStruct('InternalName', 'ZuqongsoftMusic'),
-        StringStruct('OriginalFilename', 'ZuqongsoftMusic.exe'),
-        StringStruct('ProductName', 'Zuqongsoft Music'),
+        StringStruct('InternalName', 'GaramutMusic'),
+        StringStruct('OriginalFilename', 'GaramutMusic.exe'),
+        StringStruct('ProductName', 'Garamut Music'),
         StringStruct('ProductVersion', '1.0.3.0'),
         StringStruct('LegalCopyright', '© 2026 Zuqongtech')
       ])

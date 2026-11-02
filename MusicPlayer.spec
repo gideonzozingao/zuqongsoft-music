@@ -5,8 +5,8 @@ from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all
 
-ONEFILE = False   # True = a single ZuqongsoftMusic.exe (starts slower, more antivirus false positives)
-NAME = "ZuqongsoftMusic"
+ONEFILE = False   # True = a single GaramutMusic.exe (starts slower, more antivirus false positives)
+NAME = "GaramutMusic"
 
 datas = [("assets/icon.png", "assets")]
 # libmpv for the mpv engine (equalizer, gapless). Without it the app falls back to Qt playback.

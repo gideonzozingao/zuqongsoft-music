@@ -1,14 +1,14 @@
 ; Zuqongsoft Music - Windows installer (Inno Setup 6.3 or newer)
 ; Build with build_installer.bat, which builds the app first and passes the version in.
-; Output: dist\ZuqongsoftMusic-Setup-<version>.exe
+; Output: dist\GaramutMusic-Setup-<version>.exe
 
-#define MyAppName      "Zuqongsoft Music"
-#define MyAppExeName   "ZuqongsoftMusic.exe"
+#define MyAppName      "Garamut Music"
+#define MyAppExeName   "GaramutMusic.exe"
 ; MyAppFolder must equal NAME in MusicPlayer.spec.
 ; MyAppUserModel must equal APP_USER_MODEL_ID in app/ui.py.
-#define MyAppFolder    "ZuqongsoftMusic"
+#define MyAppFolder    "GaramutMusic"
 #define MyAppPublisher "Zuqongtech"
-#define MyAppUserModel "Zuqongtech.ZuqongsoftMusic"
+#define MyAppUserModel "Zuqongtech.GaramutMusic"
 #ifndef MyAppVersion
   #define MyAppVersion "1.0.0"
 #endif
@@ -32,7 +32,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 OutputDir=dist
-OutputBaseFilename=ZuqongsoftMusic-Setup-{#MyAppVersion}
+OutputBaseFilename=GaramutMusic-Setup-{#MyAppVersion}
 SetupIconFile=assets\icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName}
