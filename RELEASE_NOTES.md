@@ -1,3 +1,49 @@
+# Garamut Music 1.0.4
+
+**Released 2 November 2026** · Windows 10 and 11 (64-bit)
+
+Zuqongsoft Music is now **Garamut Music**, named after the garamut, Papua New Guinea's slit drum that carried messages between villages. Your library, playlists, listening stats and settings carry over automatically.
+
+**Download:** `GaramutMusic-Setup-1.0.4.exe`, below under _Assets_.
+
+---
+
+## What's new
+
+**A new name and icon.** The new Garamut icon shows the drum sending its message outward. It appears on the desktop, Start menu, taskbar and Windows media controls, and stays clear even at the smallest sizes.
+
+**Clearer help when something goes wrong.** If the app hits an error, it now tells you what happened and saves the details to a log file, so problems can be reported and fixed.
+
+## Upgrading
+
+Run `GaramutMusic-Setup-1.0.4.exe`. It replaces Zuqongsoft Music and keeps everything you've added and set up. There's no need to uninstall first.
+
+## Installing for the first time
+
+1. Download **`GaramutMusic-Setup-1.0.4.exe`** and run it.
+2. If Windows shows _"Windows protected your PC"_, click **More info → Run anyway**. The installer isn't signed with a public certificate yet.
+3. Choose whether to install for just you (no administrator rights needed) or for everyone on the PC.
+4. Open **Garamut Music** from the Start Menu and add your music with **File → Add Music Folder**.
+
+## Known issues
+
+- **SmartScreen warning:** the installer isn't signed with a publicly trusted certificate yet.
+- All other known issues from earlier versions still apply.
+
+## Verifying the download
+
+```powershell
+certutil -hashfile GaramutMusic-Setup-1.0.4.exe SHA256
+```
+
+The result should match the `.sha256` file published with this release:
+
+```
+SHA-256: <paste the checksum here when publishing>
+```
+
+---
+
 # Zuqongsoft Music 1.0.3
 
 **Released 30 October 2026** · Windows 10 and 11 (64-bit)
