@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QSettings, QStandardPaths
 from PySide6.QtGui import QPixmap
+from ..updater import Updater
 from PySide6.QtWidgets import QApplication, QMainWindow
 from pathlib import Path
 from .. import system_media, theme
@@ -94,6 +95,7 @@ class MainWindow(BuildMixin, SessionMixin, LibraryMixin, PlaylistMixin, Playback
         self._unmute_volume = 70
 
         self._build_ui()
+        self.updater = Updater(self)
         self._build_menu()
         self.sleep = SleepTimer(self.engine, self)
         app_icon = QApplication.windowIcon()
@@ -105,3 +107,4 @@ class MainWindow(BuildMixin, SessionMixin, LibraryMixin, PlaylistMixin, Playback
         self._reload()
         self._restore_session()
         self._rescan()
+        self.updater.check_on_startup()

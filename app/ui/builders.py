@@ -68,7 +68,7 @@ class BuildMixin:
         self.btn_theme = icon_button("palette", "Theme and appearance (Ctrl+T)")
         brand = QHBoxLayout()
         brand.setContentsMargins(0, 0, 16, 0)
-        brand.addWidget(QLabel("Zuqongsoft Music", objectName="brand"), 1)
+        brand.addWidget(QLabel("Garamut Music", objectName="brand"), 1)
         brand.addWidget(self.btn_theme, 0, Qt.AlignmentFlag.AlignVCenter)
         lay.addLayout(brand)
         lay.addWidget(self.nav, 1)
@@ -409,6 +409,16 @@ class BuildMixin:
         m = mb.addMenu("Play&list")
         menu_action(m, "&New Playlist…", self._new_playlist, "Ctrl+N")
         menu_action(m, "&Import M3U…", self._import_playlist)
+
+        m = mb.addMenu("&Help")
+        menu_action(m, "Check for &Updates…", lambda: self.updater.check(manual=True))
+        act = menu_action(m, "Check for Updates &Automatically", self.updater.set_auto, checkable=True)
+        act.blockSignals(True)
+        act.setChecked(self.updater.auto)
+        act.blockSignals(False)
+        m.addSeparator()
+        menu_action(m, "Open &Logs Folder", self.open_logs_folder)
+        menu_action(m, "&About", self.show_about)
 
         # Delete removes from the open playlist.
         sc = QShortcut(QKeySequence(QKeySequence.StandardKey.Delete), self.table)

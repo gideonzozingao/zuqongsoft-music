@@ -38,7 +38,8 @@ def create(window) -> MediaIntegration:
             return WindowsMediaIntegration(window)
         except Exception as exc:          # never let OS glue stop the app from starting
             fallback = MediaIntegration(window)
-            QTimer.singleShot(0, lambda: fallback.message.emit(f"Media integration disabled: {exc}"))
+            reason = str(exc)             # `exc` is deleted when this block ends; keep the text
+            QTimer.singleShot(0, lambda: fallback.message.emit(f"Media integration disabled: {reason}"))
             return fallback
     return MediaIntegration(window)
 

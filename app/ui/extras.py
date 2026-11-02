@@ -6,6 +6,12 @@ from .. import theme
 from ..fullscreen import FullScreenView, KaraokeDialog
 from ..mini import MiniPlayer
 from .constants import SONGS
+from pathlib import Path
+
+from PySide6.QtCore import QStandardPaths, QUrl
+from PySide6.QtGui import QDesktopServices
+from PySide6.QtWidgets import QMessageBox
+from ..updater import UPDATE_REPO, current_version, version_text
 
 
 class ExtrasMixin:
@@ -117,6 +123,19 @@ class ExtrasMixin:
         self._mini.show()
         self._mini.raise_()
         self.hide()
+
+    def show_about(self) -> None:
+        name = QApplication.applicationDisplayName()
+        QMessageBox.about(self, f"About {name}",
+                          f"<b>{name}</b> {version_text(current_version())}<br><br>"
+                          "© 2026 Zuqongtech<br>"
+                          f'<a href="https://github.com/{UPDATE_REPO}">github.com/{UPDATE_REPO}</a>')
+
+    def open_logs_folder(self) -> None:
+        """Crash logs written by main.py (next to the library database)."""
+        folder = Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)) / "logs"
+        folder.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
     def show_main(self) -> None:
         if self._mini is not None:
